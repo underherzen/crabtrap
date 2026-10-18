@@ -1,4 +1,5 @@
 # Опубликованный релиз → обновить cask в <owner>/homebrew-tap.
+# Шаблон: packaging/homebrew/crabtrap.rb.in (@VERSION@, @SHA256@, @REPO@).
 # Нужен секрет TAP_TOKEN: fine-grained PAT с Contents: write на tap-репозиторий.
 name: Homebrew
 
