@@ -1,0 +1,60 @@
+[package]
+name = "infrastructure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+config.workspace = true
+# В Phase 1 используется только sync-часть tokio (RwLock); сетевые фичи
+# приходят вместе с engine (Phase 2+); Phase 3 добавляет process
+# (osascript/security) для работы с keychain.
+tokio.workspace = true
+tracing.workspace = true
+async-channel.workspace = true
+directories.workspace = true
+serde.workspace = true
+# preserve_order: объекты скриптов (заголовки, query, JSON-тело) сохраняют
+# порядок ключей — JSON, изменённый скриптом, не пересортировывается.
+serde_json = { workspace = true, features = ["preserve_order"] }
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+futures.workspace = true
+percent-encoding.workspace = true
+lru.workspace = true
+tempfile.workspace = true
+# Нужен для реализации #[async_trait]-контрактов domain/application.
+async-trait.workspace = true
+# Сертификаты (Phase 3): rcgen — генерация CA/листьев; rustls
+# (pki-types, PemObject) — парсинг PEM; url — punycode для SAN; sha2 —
+# fingerprint; time — валидность (тип полей rcgen).
+rcgen.workspace = true
+rustls.workspace = true
+url.workspace = true
+sha2.workspace = true
+time.workspace = true
+# Декомпрессия тел для инспектора (Phase 5): flate2 rust_backend (без C),
+# brotli — чистый Rust. Вызывается синхронно внутри async-порта
+# BodyDecoderService: тела ≤50 MiB cap, декомпрессия in-memory — микросекунды
+# на килобайт, spawn_blocking не окупается.
+flate2.workspace = true
+brotli.workspace = true
+ruzstd.workspace = true
+# Скрипты (Track S): исполнение JS-правил.
+boa_engine.workspace = true
+base64.workspace = true
+
+# Имя CA из сертификата (ca-meta.json); в тестах — разбор SAN/issuer.
+x509-parser.workspace = true
+
+# Клиент обмена (Track G8): lsof/proc_pidpath + иконки NSWorkspace.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit.workspace = true
+
+[dev-dependencies]

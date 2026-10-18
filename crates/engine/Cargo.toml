@@ -1,0 +1,51 @@
+[package]
+name = "engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["mitm-bin"]
+# Композиция headless-бинарЯ crabtrapd: единственное место, где engine
+# касается infrastructure (реальный RcgenCertificateService). Библиотека
+# движка остаётся на портах application; dev-зависимость infrastructure
+# нужна integration-тестам MITM (реальные PEM-ы без дубля rcgen).
+mitm-bin = ["dep:infrastructure"]
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+infrastructure = { workspace = true, optional = true }
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+tower-service.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
+rustls-native-certs.workspace = true
+lru.workspace = true
+async-channel.workspace = true
+futures.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+base64.workspace = true
+url.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+# Пауза времени в тестах таймаутов сбора тела.
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true
+# Integration-тесты MITM: локальный TLS-origin и реальный cert-сервис.
+rcgen.workspace = true
+tempfile.workspace = true
+infrastructure.workspace = true

@@ -1,0 +1,28 @@
+# Шаблон cask: @VERSION@, @SHA256@, @REPO@ подставляет .github/workflows/homebrew.yml.
+cask "crabtrap" do
+  version "@VERSION@"
+  sha256 "@SHA256@"
+
+  url "https://github.com/@REPO@/releases/download/v#{version}/crabtrap-#{version}-macos-universal.dmg"
+  name "crabtrap"
+  desc "HTTP/HTTPS debugging proxy (Charles-like) written in Rust"
+  homepage "https://github.com/@REPO@"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  depends_on macos: ">= :ventura"
+
+  app "crabtrap.app"
+
+  # Сборка не нотаризована (ad-hoc подпись): снимаем карантин, иначе
+  # Gatekeeper не даст запустить приложение.
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-dr", "com.apple.quarantine", "#{appdir}/crabtrap.app"]
+  end
+
+  zap trash: "~/Library/Application Support/crabtrap"
+end

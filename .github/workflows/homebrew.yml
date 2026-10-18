@@ -1,0 +1,48 @@
+# Опубликованный релиз → обновить cask в <owner>/homebrew-tap.
+# Нужен секрет TAP_TOKEN: fine-grained PAT с Contents: write на tap-репозиторий.
+name: Homebrew
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (vX.Y.Z)
+        required: true
+
+jobs:
+  cask:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          version="${TAG#v}"
+          dmg="crabtrap-$version-macos-universal.dmg"
+          gh release download "$TAG" --pattern "$dmg.sha256" --dir "$RUNNER_TEMP"
+          sha256="$(cut -d' ' -f1 "$RUNNER_TEMP/$dmg.sha256")"
+          sed -e "s/@VERSION@/$version/g" -e "s/@SHA256@/$sha256/g" \
+              -e "s|@REPO@|$GITHUB_REPOSITORY|g" \
+              packaging/homebrew/crabtrap.rb.in >"$RUNNER_TEMP/crabtrap.rb"
+          cat "$RUNNER_TEMP/crabtrap.rb"
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/homebrew-tap
+          token: ${{ secrets.TAP_TOKEN }}
+          path: tap
+      - name: Push cask
+        run: |
+          mkdir -p tap/Casks
+          cp "$RUNNER_TEMP/crabtrap.rb" tap/Casks/crabtrap.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/crabtrap.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "crabtrap $VERSION"
+          git push

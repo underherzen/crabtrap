@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened runtime без app-sandbox: прокси слушает серверные сокеты,
+     вызывает networksetup/security. Исключения runtime не нужны:
+     JIT нет (boa — интерпретатор), сторонних dylib не грузим. -->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>

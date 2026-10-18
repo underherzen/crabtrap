@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Шаблон: @VERSION@ и @BUNDLE_ID@ подставляет scripts/bundle-macos.sh. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>crabtrap</string>
+    <key>CFBundleDisplayName</key>
+    <string>crabtrap</string>
+    <key>CFBundleIdentifier</key>
+    <string>@BUNDLE_ID@</string>
+    <key>CFBundleExecutable</key>
+    <string>crabtrap</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>MIT OR Apache-2.0</string>
+    <!-- macOS 15+: без описания исходящие соединения в LAN (устройства,
+         локальные серверы за прокси) молча блокируются. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>crabtrap forwards proxied requests to servers and devices on your local network.</string>
+</dict>
+</plist>
