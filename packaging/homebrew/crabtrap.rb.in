@@ -17,9 +17,8 @@ cask "crabtrap" do
   app "crabtrap.app"
 
   # Not notarized (ad-hoc signature): drop quarantine so Gatekeeper lets it launch.
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/crabtrap.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/crabtrap.app"]
   end
 
   zap trash: "~/Library/Application Support/crabtrap"
