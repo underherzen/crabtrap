@@ -7,14 +7,14 @@ use std::sync::{Arc, RwLock};
 use application::dto::proxy_config::ProxySettingsDto;
 
 use application::services::{
-    BodyDecoderService, CertificateService, ClientProcessService, DirectHttpService,
-    InterceptionPipeline, ReleaseFeed, ScriptRuntime, SystemProxyService,
+    BodyDecoderService, CertificateService, ClientProcessService, DirectHttpService, ReleaseFeed,
+    ScriptRuntime, SystemProxyService,
 };
 use domain::repositories::{BodyRepository, ExchangeRepository, RuleRepository};
 use infrastructure::repositories::{
     FileRuleRepository, InMemoryExchangeRepository, MemorySpillBodyStore,
 };
-use infrastructure::services::{ChannelEventPublisher, PassthroughInterceptionPipeline};
+use infrastructure::services::ChannelEventPublisher;
 
 use crate::runtime::EngineHandle;
 
@@ -31,7 +31,6 @@ pub struct AppState {
     pub body_repository: Arc<dyn BodyRepository>,
     pub rule_repository: Arc<dyn RuleRepository>,
     pub event_publisher: Arc<ChannelEventPublisher>,
-    pub interception_pipeline: Arc<dyn InterceptionPipeline>,
     /// Сертификаты MITM (Phase 3): RcgenCertificateService.
     pub certificate_service: Arc<dyn CertificateService>,
     /// Декомпрессия тел инспектора (Phase 5): RustBodyDecoder (flate2+brotli).
@@ -131,8 +130,6 @@ impl AppState {
     ) -> Self {
         let exchange_repository =
             Arc::new(InMemoryExchangeRepository::new(config.capture.buffer_len));
-        let interception_pipeline: Arc<dyn InterceptionPipeline> =
-            Arc::new(PassthroughInterceptionPipeline::new());
         let body_decoder: Arc<dyn BodyDecoderService> =
             Arc::new(infrastructure::services::RustBodyDecoder::new());
         let system_proxy_service: Arc<dyn SystemProxyService> =
@@ -149,7 +146,6 @@ impl AppState {
             body_repository,
             rule_repository,
             event_publisher,
-            interception_pipeline,
             certificate_service,
             body_decoder,
             system_proxy_service,

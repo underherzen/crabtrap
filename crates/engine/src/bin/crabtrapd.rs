@@ -136,7 +136,8 @@ impl EventPublisher for PrintingPublisher {
     }
 }
 
-/// Пайплайн-заглушка: всё пропускаем (реальные решения — Phase 6).
+/// Пайплайн-заглушка: всё пропускаем — headless-демон правила (Block, Map,
+/// Throttle, Breakpoints, Rewrite, Scripts) не применяет; они есть только в app.
 struct PassthroughPipeline;
 
 #[async_trait]

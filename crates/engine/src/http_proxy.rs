@@ -288,7 +288,8 @@ pub(crate) fn version_vo(v: Version) -> HttpVersionVo {
     }
 }
 
-/// Запрос → InterceptableMessage (тело — заглушка до Phase 6).
+/// Запрос → InterceptableMessage без тела: тело подставляет `forward`
+/// (через `intercept_body`), только если пайплайн просит его (`wants_body`).
 pub(crate) fn interceptable_request(
     method: &Method,
     uri: &str,
@@ -314,7 +315,7 @@ pub(crate) fn interceptable_request(
     .into_interceptable()
 }
 
-/// Ответ → InterceptableMessage (тело — заглушка до Phase 6).
+/// Ответ → InterceptableMessage без тела (тело — как у запроса, по `wants_body`).
 pub(crate) fn interceptable_response(
     status: u16,
     version: Version,

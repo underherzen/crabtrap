@@ -1,8 +1,8 @@
 //! Пайплайн-заглушка: все соединения — туннелем, все сообщения — в origin.
 //!
-//! Используется app-композицией до Phase 6, когда придёт
-//! RulesInterceptionPipeline (решения из RuleSet: rewrite/map/block/
-//! breakpoint/throttle). Методы обязаны быть infallible — см. порт.
+//! Нужен тестам движка/рантайма, где правила не важны; приложение собирает
+//! настоящую цепочку (Rules → Breakpoints → Rewrite → Scripting) в
+//! `app/main.rs`. Методы обязаны быть infallible — см. порт.
 
 use application::services::InterceptionPipeline;
 use application::services::{ConnectDecision, InterceptContext, InterceptOutcome, RouteDecision};
