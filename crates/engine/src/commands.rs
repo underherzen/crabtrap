@@ -12,12 +12,12 @@ use tokio::sync::RwLock;
 use application::dto::proxy_config::EngineCommand;
 use application::dto::rules::ThrottleSpecDto;
 use application::services::{CertificateService, EventPublisher, InterceptionPipeline};
-use domain::entities::network::{DnsOverride, ExternalProxyConfig};
+use domain::entities::network::{DnsOverride, ExternalProxyConfig, spoofed_ip};
 use domain::entities::rule::{RuleSet, SslProxyEntry};
 use domain::repositories::BodyRepository;
 use domain::value_objects::ConnectionId;
 
-use crate::client::UpstreamClient;
+use crate::client::{UpstreamClient, UpstreamClients};
 use crate::mitm::CertIssuer;
 
 /// Что делать командному циклу дальше.
@@ -32,9 +32,11 @@ pub(crate) enum CommandFlow {
 pub(crate) struct EngineState {
     pub(crate) events: Arc<dyn EventPublisher>,
     pub(crate) pipeline: Arc<dyn InterceptionPipeline>,
-    pub(crate) client: UpstreamClient,
-    /// HTTP/1.1-клиент для апгрейдов (WebSocket, Phase 11b).
-    pub(crate) upgrade_client: UpstreamClient,
+    /// Исходящие клиенты; пересоздаются при смене DNS-override'ов
+    /// (см. [`EngineState::upstream`]).
+    upstream: std::sync::RwLock<UpstreamClients>,
+    /// Доверенные корни сверх системных — для пересоздания клиентов.
+    extra_root_certs: Vec<Vec<u8>>,
     /// Выпускатель MITM-листьев (Phase 3): LRU CertifiedKey + ServerConfig.
     pub(crate) certs: Arc<CertIssuer>,
     /// Адрес листенера (None — остановлен).
@@ -68,8 +70,8 @@ impl EngineState {
     pub(crate) fn new(
         events: Arc<dyn EventPublisher>,
         pipeline: Arc<dyn InterceptionPipeline>,
-        client: UpstreamClient,
-        upgrade_client: UpstreamClient,
+        upstream: UpstreamClients,
+        extra_root_certs: Vec<Vec<u8>>,
         certificate_service: Arc<dyn CertificateService>,
         dns_overrides: Arc<RwLock<Vec<DnsOverride>>>,
         bodies: Arc<dyn BodyRepository>,
@@ -80,8 +82,8 @@ impl EngineState {
         Self {
             events,
             pipeline,
-            client,
-            upgrade_client,
+            upstream: std::sync::RwLock::new(upstream),
+            extra_root_certs,
             certs: Arc::new(CertIssuer::new(certificate_service)),
             listen_addr: RwLock::new(None),
             active_conns: AtomicUsize::new(0),
@@ -96,6 +98,38 @@ impl EngineState {
             record_bodies: AtomicBool::new(record_bodies),
             body_capture_cap_bytes,
             intercept_body_cap_bytes,
+        }
+    }
+
+    /// Адрес из DNS Spoofing для хоста (`None` — обычный DNS).
+    pub(crate) async fn spoofed_ip(&self, host: &str) -> Option<std::net::IpAddr> {
+        spoofed_ip(&self.dns_overrides.read().await, host)
+    }
+
+    /// Исходящий клиент: обычный или HTTP/1.1 для апгрейдов.
+    pub(crate) fn upstream(&self, upgrade: bool) -> UpstreamClient {
+        let clients = self.upstream.read().unwrap_or_else(|e| e.into_inner());
+        match upgrade {
+            true => clients.upgrade.clone(),
+            false => clients.client.clone(),
+        }
+    }
+
+    /// Новая таблица DNS Spoofing. Изменилась — клиенты пересоздаются с
+    /// пустыми пулами, иначе keep-alive соединения ещё до 90 с ходили бы по
+    /// старому адресу. Запросы в полёте доживают на старых клиентах.
+    async fn set_dns_overrides(&self, entries: Vec<DnsOverride>) {
+        let mut current = self.dns_overrides.write().await;
+        if *current == entries {
+            return;
+        }
+        *current = entries;
+        drop(current);
+        match UpstreamClients::build(&self.extra_root_certs, &self.dns_overrides) {
+            Ok(fresh) => *self.upstream.write().unwrap_or_else(|e| e.into_inner()) = fresh,
+            Err(error) => {
+                tracing::warn!(%error, "dns overrides: upstream clients not rebuilt, pooled connections keep their address")
+            }
         }
     }
 
@@ -216,11 +250,8 @@ impl EngineState {
                 CommandFlow::Continue
             }
             EngineCommand::SetDnsOverrides { entries } => {
-                tracing::info!(
-                    n = entries.len(),
-                    "dns overrides set (CONNECT dial uses them; full resolver — Phase 10)"
-                );
-                *self.dns_overrides.write().await = entries;
+                tracing::info!(n = entries.len(), "dns overrides set");
+                self.set_dns_overrides(entries).await;
                 CommandFlow::Continue
             }
             EngineCommand::SetBodyCapture { enabled } => {

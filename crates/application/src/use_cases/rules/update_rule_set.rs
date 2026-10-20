@@ -165,6 +165,17 @@ fn validate(rules: &RuleSet) -> Result<(), DomainError> {
         }
     }
 
+    for entry in &rules.dns_spoof {
+        check_id(entry.id, "dns_spoof")?;
+        let pattern = entry.host_pattern.trim();
+        if pattern.is_empty() || pattern.contains(char::is_whitespace) {
+            return Err(DomainError::ValidationError(format!(
+                "dns_spoof entry {}: host pattern {:?} is empty or has spaces",
+                entry.id, entry.host_pattern
+            )));
+        }
+    }
+
     for rule in &rules.rewrite {
         check_id(rule.id, "rewrite")?;
         if rule.name.trim().is_empty() {
@@ -494,6 +505,20 @@ mod tests {
             validate(&rewrite).is_err(),
             "rewrite matches are checked too"
         );
+    }
+
+    #[test]
+    fn dns_spoof_hosts_are_validated() {
+        let with = |pattern: &str| RuleSet {
+            dns_spoof: vec![domain::entities::rule::DnsSpoofEntry::new(
+                pattern,
+                std::net::Ipv4Addr::LOCALHOST.into(),
+            )],
+            ..Default::default()
+        };
+        assert!(validate(&with("*.example.com")).is_ok());
+        assert!(validate(&with("")).is_err());
+        assert!(validate(&with("a b.com")).is_err());
     }
 
     #[test]

@@ -312,10 +312,10 @@ async fn spawn_mitm_engine(
     };
     let cfg = EngineConfig::new("127.0.0.1:0", 16)
         .with_extra_root_certs(vec![origin_der])
-        .with_dns_overrides(vec![DnsOverride {
-            host: Host::new("origin.local").expect("host"),
-            ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-        }]);
+        .with_dns_overrides(vec![DnsOverride::new(
+            "origin.local",
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        )]);
     tokio::spawn(engine::run(cfg, deps, cmd_rx));
     let addr = publisher.wait_listening().await;
     if !ssl_patterns.is_empty() {

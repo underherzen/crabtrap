@@ -6,9 +6,10 @@
 
 use std::path::PathBuf;
 
+use application::use_cases::rules::edit::parse_ip;
 use application::use_cases::rules::edit::{
-    upsert_allow_host, upsert_block, upsert_breakpoint, upsert_map_local, upsert_map_remote,
-    upsert_ssl_host, with_throttle_scope,
+    upsert_allow_host, upsert_block, upsert_breakpoint, upsert_dns_spoof, upsert_map_local,
+    upsert_map_remote, upsert_ssl_host, with_throttle_scope,
 };
 use application::use_cases::rules::location_form::{
     LocationErrors, LocationForm, RemoteTargetForm,
@@ -42,6 +43,7 @@ const HEADERS_EDITOR_HEIGHT: f32 = 84.;
 pub enum DialogKind {
     SslHost,
     AllowHost,
+    DnsSpoof,
     Block,
     MapLocal,
     MapRemote,
@@ -56,6 +58,8 @@ impl DialogKind {
             (DialogKind::SslHost, true) => "Edit SSL Proxying host",
             (DialogKind::AllowHost, false) => "Record only this host",
             (DialogKind::AllowHost, true) => "Edit Allow List host",
+            (DialogKind::DnsSpoof, false) => "Spoof DNS for host",
+            (DialogKind::DnsSpoof, true) => "Edit DNS Spoofing",
             (DialogKind::Block, false) => "Block location",
             (DialogKind::Block, true) => "Edit blocked location",
             (DialogKind::MapLocal, false) => "Map location to local file",
@@ -72,7 +76,9 @@ impl DialogKind {
     /// запроса для throttle не читается).
     fn match_fields(self) -> MatchFieldsKind {
         match self {
-            DialogKind::SslHost | DialogKind::AllowHost => MatchFieldsKind::HostOnly,
+            DialogKind::SslHost | DialogKind::AllowHost | DialogKind::DnsSpoof => {
+                MatchFieldsKind::HostOnly
+            }
             DialogKind::ThrottleScope => MatchFieldsKind::NoGraphql,
             DialogKind::Block
             | DialogKind::MapLocal
@@ -89,6 +95,7 @@ impl Default for DialogInit {
             location: LocationForm::default(),
             block_close: false,
             ssl_exclude: false,
+            dns_ip: String::new(),
             local_path: String::new(),
             response: ResponseForm::default(),
             remote: None,
@@ -106,6 +113,8 @@ pub struct DialogInit {
     pub block_close: bool,
     /// SSL Proxying: «не расшифровывать» (исключение).
     pub ssl_exclude: bool,
+    /// DNS Spoofing: IP, в который разрешается хост.
+    pub dns_ip: String,
     pub local_path: String,
     pub response: ResponseForm,
     pub remote: Option<RemoteTargetForm>,
@@ -130,6 +139,7 @@ pub struct LocationDialog {
     location: Entity<MatchFields>,
     block_close: bool,
     ssl_exclude: bool,
+    dns_ip: Entity<InputState>,
     local_path: Entity<InputState>,
     status: Entity<InputState>,
     content_type: Entity<InputState>,
@@ -169,6 +179,7 @@ impl LocationDialog {
             path: String::new(),
             query: String::new(),
         });
+        let dns_ip = input("127.0.0.1", &init.dns_ip);
         let local_path = input("/Users/me/mocks/users.json", &init.local_path);
         let status = input("200", &init.response.status);
         let content_type = input("auto — from file extension", &init.response.content_type);
@@ -189,6 +200,7 @@ impl LocationDialog {
             location,
             block_close: init.block_close,
             ssl_exclude: init.ssl_exclude,
+            dns_ip,
             local_path,
             status,
             content_type,
@@ -238,6 +250,19 @@ impl LocationDialog {
                 DialogKind::AllowHost => {
                     let host = form.normalized().host;
                     Box::new(move |rules| upsert_allow_host(rules, id, &host))
+                }
+                DialogKind::DnsSpoof => {
+                    let host = form.normalized().host;
+                    let ip = text(&self.dns_ip, cx);
+                    if let Err(e) = parse_ip(&ip) {
+                        self.errors = Errors {
+                            target: Some(e.to_string()),
+                            ..Errors::default()
+                        };
+                        cx.notify();
+                        return false;
+                    }
+                    Box::new(move |rules| upsert_dns_spoof(rules, id, &host, &ip))
                 }
                 DialogKind::Block => {
                     let action = if self.block_close {
@@ -557,6 +582,15 @@ impl Render for LocationDialog {
                     )
                     .into_any_element(),
                 None,
+                danger,
+            )),
+            DialogKind::DnsSpoof => body.child(row(
+                "IP address",
+                div()
+                    .w(px(240.))
+                    .child(Input::new(&self.dns_ip))
+                    .into_any_element(),
+                self.errors.target.clone(),
                 danger,
             )),
             DialogKind::ThrottleScope | DialogKind::AllowHost => body,

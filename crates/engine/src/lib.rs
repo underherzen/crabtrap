@@ -49,8 +49,7 @@ pub struct EngineConfig {
     /// Доверенные DER-корни СВЕРХ системных (тесты локальных origin,
     /// будущие upstream-прокси).
     pub extra_root_certs: Vec<Vec<u8>>,
-    /// DNS-override'ы на старте (семена Phase 10: hot-reload приедет с
-    /// применением SetDnsOverrides целиком).
+    /// DNS-override'ы на старте (дальше — EngineCommand::SetDnsOverrides).
     pub dns_overrides: Vec<DnsOverride>,
     /// Захватывать ли тела в BodyRepository (Phase 4).
     pub record_bodies: bool,
@@ -156,14 +155,12 @@ pub async fn run(
 ) -> Result<(), EngineError> {
     ensure_ring_provider();
     let dns_overrides = Arc::new(tokio::sync::RwLock::new(cfg.dns_overrides.clone()));
-    let client = client::UpstreamClient::new(&cfg.extra_root_certs, Arc::clone(&dns_overrides))?;
-    let upgrade_client =
-        client::UpstreamClient::http1_only(&cfg.extra_root_certs, Arc::clone(&dns_overrides))?;
+    let upstream = client::UpstreamClients::build(&cfg.extra_root_certs, &dns_overrides)?;
     let state = Arc::new(commands::EngineState::new(
         Arc::clone(&deps.events),
         deps.pipeline,
-        client,
-        upgrade_client,
+        upstream,
+        cfg.extra_root_certs.clone(),
         deps.certificate_service,
         dns_overrides,
         deps.bodies,

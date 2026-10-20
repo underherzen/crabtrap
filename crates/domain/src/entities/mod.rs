@@ -1,6 +1,7 @@
 pub mod allow_list;
 pub mod body;
 pub mod certificate;
+pub mod dns_spoof;
 pub mod exchange;
 pub mod network;
 pub mod rewrite;

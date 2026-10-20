@@ -1,7 +1,7 @@
 //! Контекстное меню строки трафика (правый клик), как в Charles: правило
 //! для этого запроса без ручного переписывания хоста и пути.
 //!
-//! Map Local… / Map Remote… / Block… открывают окно Tools с диалогом, где
+//! Map Local… / Map Remote… / Block… / DNS Spoofing… открывают окно Tools с диалогом, где
 //! уже подставлены хост, путь и метод; «Save Response & Map Local…» —
 //! то же, плюс тело ответа сохранено в файл мока, статус и заголовки — в форме; Script… — Script Editor с ними же; «Enable SSL Proxying for <host>»
 //! добавляет хост сразу; «Pin/Unpin <host>» — закрепить домен в боковой
@@ -79,6 +79,7 @@ pub fn exchange_menu(
         })
         .item(open_tool("Map Remote…", RulesTab::MapRemote))
         .item(open_tool("Block…", RulesTab::BlockList))
+        .item(open_tool("DNS Spoofing…", RulesTab::DnsSpoofing))
         .item(open_tool("Rewrite…", RulesTab::Rewrite))
         .item(open_tool("Breakpoint…", RulesTab::Breakpoints))
         .item({

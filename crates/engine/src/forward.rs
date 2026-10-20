@@ -46,6 +46,7 @@ use crate::intercept_body::{
     merge_headers, set_length, status_has_body,
 };
 use crate::throttle::ThrottledBody;
+use crate::tunnel_record::DNS_SPOOFED_TAG;
 use crate::ws;
 
 /// Ответ сервиса: `Err` — закрыть клиентское соединение без ответа.
@@ -433,6 +434,12 @@ impl ProxyService {
         mut parts: http::request::Parts,
         body: MonitoredBody,
     ) -> ServiceResult {
+        // Адрес origin подменён — тег; итоговый хост (после Map Remote).
+        if let Some(host) = parts.uri.host()
+            && self.state.spoofed_ip(host).await.is_some()
+        {
+            publish_tag(&ctx, DNS_SPOOFED_TAG);
+        }
         // URI остаётся absolute-form: hyper-клиент сам кладёт в стартовую
         // строку origin-form, а authority использует для коннекта и пула.
         parts.version = Version::HTTP_11;
@@ -446,14 +453,14 @@ impl ProxyService {
                 .is_none_or(|a| !host.as_bytes().eq_ignore_ascii_case(a.as_str().as_bytes()))
         });
         let client = match ctx.client_upgrade.is_some() || host_differs {
-            true => &self.state.upgrade_client,
+            true => self.state.upstream(true),
             false => {
                 // Host = authority — дубль: h2 несёт его в `:authority`, и
                 // `host` рядом Google Front End сбрасывает
                 // RST_STREAM(PROTOCOL_ERROR); для HTTP/1.1 hyper-util
                 // выставит Host из URI сам.
                 parts.headers.remove(http::header::HOST);
-                &self.state.client
+                self.state.upstream(false)
             }
         };
         let resp = match client.request(Request::from_parts(parts, body)).await {

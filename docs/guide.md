@@ -127,6 +127,27 @@ Proxyman's Allow List and keeps the traffic table focused on the app you are deb
   keeps its state until the client reconnects.
 - The status bar's connection count includes connections that are not recorded.
 
+## DNS Spoofing
+
+Connects chosen hosts to an IP address you set, instead of the one from DNS, like Proxyman's DNS
+Spoofing. The request is unchanged: the same URL, `Host` header, SNI and certificate checks. Use it
+to point the production name at a staging server or a backend on your Mac without editing
+`/etc/hosts`.
+
+- Add hosts in **Tools → DNS Spoofing**, or right-click a request → **DNS Spoofing…** (the host is
+  filled in). Enter an IPv4 or IPv6 address, for example `127.0.0.1` or `::1`.
+- Patterns work like in SSL Proxying: `api.example.com`, or `*.example.com`, which also matches
+  `example.com` itself. When several entries match, the first one in the list wins.
+- It applies to everything crabtrap connects to: plain HTTP, decrypted HTTPS, HTTPS tunnels,
+  WebSockets, Repeat and Compose. After **Map Remote**, the host of the new target is the one
+  looked up.
+- Spoofed requests and tunnels are tagged `dns-spoofed` in the traffic table.
+- Changes apply to the next request straight away; idle keep-alive connections to the old address
+  are dropped. An HTTPS tunnel that is already open (not decrypted) stays on its address until the
+  client reconnects.
+- Only traffic that goes through crabtrap is affected. The system DNS and apps that bypass the
+  proxy are not.
+
 ## Map Local
 
 Answers matching requests with a file from your Mac. The request never reaches the server.

@@ -27,7 +27,7 @@ use tower_service::Service;
 
 use crate::body::MonitoredBody;
 use crate::error::EngineError;
-use domain::entities::network::DnsOverride;
+use domain::entities::network::{DnsOverride, spoofed_ip};
 
 /// Таймаут на установку исходящего соединения (только connect; на тело
 /// таймаута нет — стриминг больших загрузок).
@@ -179,14 +179,9 @@ impl Service<http::Uri> for HttpsConnector {
                 .to_string();
             let port = dst.port_u16().unwrap_or(default_port);
 
-            // DNS-override (семена Phase 10): адрес подменяется, SNI/ServerName
-            // остаются оригинальными.
-            let override_ip = dns
-                .read()
-                .await
-                .iter()
-                .find(|o| o.host.as_str() == host)
-                .map(|o| o.ip);
+            // DNS Spoofing: адрес подменяется, SNI/ServerName остаются
+            // оригинальными.
+            let override_ip = spoofed_ip(&dns.read().await, &host);
 
             let tcp = match override_ip {
                 Some(ip) => {
@@ -341,6 +336,28 @@ impl UpstreamClient {
         req: http::Request<MonitoredBody>,
     ) -> hyper_util::client::legacy::ResponseFuture {
         self.inner.request(req)
+    }
+}
+
+/// Пара исходящих клиентов движка с общим пулом на каждый.
+#[derive(Clone)]
+pub(crate) struct UpstreamClients {
+    pub(crate) client: UpstreamClient,
+    /// HTTP/1.1-клиент для апгрейдов (WebSocket, Phase 11b).
+    pub(crate) upgrade: UpstreamClient,
+}
+
+impl UpstreamClients {
+    /// Новые клиенты — с пустыми пулами: после смены DNS-override'ов
+    /// keep-alive соединения к старому адресу не переиспользуются.
+    pub(crate) fn build(
+        extra_roots: &[Vec<u8>],
+        dns: &Arc<RwLock<Vec<DnsOverride>>>,
+    ) -> Result<Self, EngineError> {
+        Ok(Self {
+            client: UpstreamClient::new(extra_roots, Arc::clone(dns))?,
+            upgrade: UpstreamClient::http1_only(extra_roots, Arc::clone(dns))?,
+        })
     }
 }
 

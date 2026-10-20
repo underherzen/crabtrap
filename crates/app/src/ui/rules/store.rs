@@ -139,4 +139,7 @@ fn push_to_engine(engine: &EngineHandle, rules: &RuleSet) {
     engine.send(EngineCommand::UpdateSslProxying {
         entries: rules.effective_ssl_entries(),
     });
+    engine.send(EngineCommand::SetDnsOverrides {
+        entries: rules.effective_dns_overrides(),
+    });
 }

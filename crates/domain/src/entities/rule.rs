@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub use super::allow_list::AllowEntry;
+pub use super::dns_spoof::DnsSpoofEntry;
 use super::script_rule::ScriptRule;
 pub use super::ssl_proxy::SslProxyEntry;
 use super::ssl_proxy::{SSL_DEFAULTS_VERSION, any_decrypting, missing_default_excludes};
@@ -50,6 +51,11 @@ pub struct RuleSet {
     pub allow_enabled: bool,
     /// Хосты, которые записываются, пока Allow List действует.
     pub allow_list: Vec<AllowEntry>,
+    /// Галочка «Enable DNS Spoofing». Старый rules.json — `true` (записей
+    /// там нет, подменять нечего).
+    pub dns_spoof_enabled: bool,
+    /// Хосты, которые разрешаются в заданный IP.
+    pub dns_spoof: Vec<DnsSpoofEntry>,
 }
 
 impl Default for RuleSet {
@@ -75,6 +81,8 @@ impl Default for RuleSet {
             scripts: Vec::new(),
             allow_enabled: false,
             allow_list: Vec::new(),
+            dns_spoof_enabled: true,
+            dns_spoof: Vec::new(),
         }
     }
 }

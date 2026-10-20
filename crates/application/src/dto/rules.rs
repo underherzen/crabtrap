@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use domain::entities::rule::BreakPhase;
 use domain::entities::rule::{
-    AllowEntry, BlockRule, BreakpointRule, MapLocalRule, MapRemoteRule, RewriteRule, RuleSet,
-    SslProxyEntry, ThrottleProfile,
+    AllowEntry, BlockRule, BreakpointRule, DnsSpoofEntry, MapLocalRule, MapRemoteRule, RewriteRule,
+    RuleSet, SslProxyEntry, ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
 use domain::value_objects::{ExchangeId, InterceptId, RuleId, TrafficMatch};
@@ -55,6 +55,10 @@ pub struct RuleSetDto {
     pub allow_enabled: bool,
     #[serde(default)]
     pub allow_list: Vec<AllowEntry>,
+    #[serde(default = "default_true")]
+    pub dns_spoof_enabled: bool,
+    #[serde(default)]
+    pub dns_spoof: Vec<DnsSpoofEntry>,
 }
 
 fn default_true() -> bool {
@@ -90,6 +94,8 @@ impl RuleSetDto {
             scripts: rules.scripts.clone(),
             allow_enabled: rules.allow_enabled,
             allow_list: rules.allow_list.clone(),
+            dns_spoof_enabled: rules.dns_spoof_enabled,
+            dns_spoof: rules.dns_spoof.clone(),
         }
     }
 
@@ -115,6 +121,8 @@ impl RuleSetDto {
             scripts: self.scripts,
             allow_enabled: self.allow_enabled,
             allow_list: self.allow_list,
+            dns_spoof_enabled: self.dns_spoof_enabled,
+            dns_spoof: self.dns_spoof,
         }
     }
 }

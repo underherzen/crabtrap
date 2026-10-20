@@ -20,6 +20,9 @@ use domain::value_objects::{ConnectionId, ExchangeId, TimingPhases};
 /// Тег строки таблицы: прозрачный туннель (байты не расшифровывались).
 pub(crate) const TUNNEL_TAG: &str = "tunnel";
 
+/// Тег обмена или туннеля, адрес которого подменён DNS Spoofing.
+pub(crate) const DNS_SPOOFED_TAG: &str = "dns-spoofed";
+
 /// Обмен-запись одного CONNECT.
 ///
 /// Drop без `failed`/`closed` (отмена future CONNECT, абортнутая на Stop
@@ -72,6 +75,14 @@ impl TunnelRecord {
             started: Instant::now(),
             finished: false,
         }
+    }
+
+    /// Дополнительный тег строки туннеля.
+    pub(crate) fn tag(&self, tag: &str) {
+        self.events.publish(ProxyEvent::ExchangeTagged {
+            id: self.id,
+            tag: tag.to_string(),
+        });
     }
 
     /// Прокси ответил на CONNECT статусом (200 — туннель поднят, 403 — блок).

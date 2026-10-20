@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use domain::DomainError;
 use domain::entities::rule::{
     AllowEntry, BlockAction, BlockRule, BreakPhase, BreakpointRule, DEFAULT_MAP_LOCAL_STATUS,
-    MapLocalRule, MapRemoteRule, RewriteLocation, RewriteOp, RewriteRule, RuleSet, SslProxyEntry,
-    ThrottleProfile,
+    DnsSpoofEntry, MapLocalRule, MapRemoteRule, RewriteLocation, RewriteOp, RewriteRule, RuleSet,
+    SslProxyEntry, ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
 use domain::value_objects::http_vo::HeaderEntry;
@@ -315,6 +315,46 @@ pub fn with_host_allowed(rules: RuleSet, location: &str) -> Result<RuleSet, Doma
     })
 }
 
+/// Запись DNS Spoofing: новая или правка существующей. `ip` — IPv4 или
+/// IPv6 (`127.0.0.1`, `::1`, `[::1]`).
+pub fn upsert_dns_spoof(
+    rules: RuleSet,
+    id: Option<RuleId>,
+    location: &str,
+    ip: &str,
+) -> Result<RuleSet, DomainError> {
+    let host = location_host(location)?;
+    let ip = parse_ip(ip)?;
+    Ok(RuleSet {
+        dns_spoof: upsert(
+            rules.dns_spoof,
+            id,
+            |r| r.id,
+            |old| DnsSpoofEntry {
+                id: old.map(|o| o.id).unwrap_or_else(RuleId::new),
+                host_pattern: host,
+                ip,
+                enabled: old.is_none_or(|o| o.enabled),
+            },
+        ),
+        ..rules
+    })
+}
+
+/// IP-адрес из поля формы (скобки IPv6 допускаются).
+pub fn parse_ip(input: &str) -> Result<std::net::IpAddr, DomainError> {
+    let trimmed = input.trim();
+    let bare = trimmed
+        .strip_prefix('[')
+        .and_then(|ip| ip.strip_suffix(']'))
+        .unwrap_or(trimmed);
+    bare.parse().map_err(|_| {
+        DomainError::ValidationError(format!(
+            "'{trimmed}' is not an IP address (e.g. 127.0.0.1 or ::1)"
+        ))
+    })
+}
+
 /// Хост из локации (`https://API.com:8443/v1` → `api.com`; пусто — `*`).
 fn location_host(location: &str) -> Result<String, DomainError> {
     Ok(parse_location(location)?
@@ -412,6 +452,15 @@ pub fn with_rule_duplicated(rules: RuleSet, id: RuleId) -> RuleSet {
                 ..r
             },
         ),
+        dns_spoof: dup(
+            rules.dns_spoof,
+            id,
+            |r| r.id,
+            |r| DnsSpoofEntry {
+                id: RuleId::new(),
+                ..r
+            },
+        ),
         ..rules
     }
 }
@@ -421,6 +470,7 @@ pub fn with_rule_duplicated(rules: RuleSet, id: RuleId) -> RuleSet {
 pub enum Tool {
     SslProxying,
     AllowList,
+    DnsSpoofing,
     BlockList,
     MapLocal,
     MapRemote,
@@ -434,6 +484,7 @@ pub fn tool_enabled(rules: &RuleSet, tool: Tool) -> bool {
     match tool {
         Tool::SslProxying => rules.ssl_proxy_enabled,
         Tool::AllowList => rules.allow_enabled,
+        Tool::DnsSpoofing => rules.dns_spoof_enabled,
         Tool::BlockList => rules.blocks_enabled,
         Tool::MapLocal => rules.map_local_enabled,
         Tool::MapRemote => rules.map_remote_enabled,
@@ -449,6 +500,10 @@ pub fn with_tool_enabled(rules: RuleSet, tool: Tool, enabled: bool) -> RuleSet {
         Tool::SslProxying => rules.with_ssl_proxying(enabled),
         Tool::AllowList => RuleSet {
             allow_enabled: enabled,
+            ..rules
+        },
+        Tool::DnsSpoofing => RuleSet {
+            dns_spoof_enabled: enabled,
             ..rules
         },
         Tool::BlockList => RuleSet {
@@ -557,6 +612,7 @@ pub fn without_rule(rules: RuleSet, id: RuleId) -> RuleSet {
             .into_iter()
             .filter(|r| r.id != id)
             .collect(),
+        dns_spoof: rules.dns_spoof.into_iter().filter(|r| r.id != id).collect(),
         ..rules
     }
 }
@@ -666,6 +722,14 @@ pub fn with_rule_toggled(rules: RuleSet, id: RuleId) -> RuleSet {
             .allow_list
             .into_iter()
             .map(|r| AllowEntry {
+                enabled: r.enabled != (r.id == id),
+                ..r
+            })
+            .collect(),
+        dns_spoof: rules
+            .dns_spoof
+            .into_iter()
+            .map(|r| DnsSpoofEntry {
                 enabled: r.enabled != (r.id == id),
                 ..r
             })
@@ -805,6 +869,32 @@ mod tests {
         let again = with_host_allowed(disabled, "api.com").expect("ok");
         assert_eq!(again.allow_list.len(), 1, "no duplicates");
         assert!(again.allow_list[0].enabled, "existing entry is re-enabled");
+    }
+
+    #[test]
+    fn dns_spoof_entries_take_part_in_generic_rule_edits() {
+        let rules = upsert_dns_spoof(RuleSet::default(), None, "https://API.test/v1", "127.0.0.1")
+            .expect("ok");
+        assert_eq!(rules.dns_spoof[0].host_pattern, "api.test");
+        let id = rules.dns_spoof[0].id;
+        let edited = upsert_dns_spoof(rules, Some(id), "*.api.test", "[::1]").expect("ok");
+        assert_eq!(edited.dns_spoof.len(), 1);
+        assert_eq!(edited.dns_spoof[0].host_pattern, "*.api.test");
+        assert_eq!(edited.dns_spoof[0].ip, parse_ip("::1").expect("ip"));
+
+        assert!(!with_rule_toggled(edited.clone(), id).dns_spoof[0].enabled);
+        assert_eq!(with_rule_duplicated(edited.clone(), id).dns_spoof.len(), 2);
+        assert!(without_rule(edited.clone(), id).dns_spoof.is_empty());
+        let off = with_tool_enabled(edited, Tool::DnsSpoofing, false);
+        assert!(!tool_enabled(&off, Tool::DnsSpoofing));
+        assert!(off.effective_dns_overrides().is_empty());
+    }
+
+    #[test]
+    fn dns_spoof_rejects_bad_ip() {
+        let error = upsert_dns_spoof(RuleSet::default(), None, "api.test", "localhost")
+            .expect_err("not an IP");
+        assert!(error.to_string().contains("not an IP address"), "{error}");
     }
 
     #[test]

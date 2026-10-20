@@ -410,7 +410,7 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
 
 - [ ] `engine/reverse.rs`: отдельный listener → перезапись Host/URL на target (preserve_host on/off)
 - [ ] `engine/port_forward.rs`: TCP forward (запись соединения без exchange)
-- [ ] `engine/dns.rs`: HostResolverService (hickory) + override-таблица; custom resolver в коннекторе: SNI доменный, connect на подменённый IP
+- [x] DNS spoofing — сделан в Track P5 (override-таблица в коннекторе и CONNECT; системный резолвер)
 - [ ] UI network-контекста
 
 **Проверка**: reverse `localhost:9090 → https://api.example.com`; port forward `127.0.0.1:5433 → db:5432` (psql); DNS spoof `evil.example.com → 127.0.0.1` (exchange фиксирует оригинальный Host).
@@ -485,8 +485,18 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
         состояния; валидация шаблонов
   - [x] документация: раздел Allow List в `docs/guide.md`, README, CHANGELOG
   - [ ] ручная проверка в GUI — не делалась агентом
-- [ ] **P5. DNS Spoofing** (~1 день): движок готов — сохранение в `RuleSet`, `SetDnsOverrides` на
-      старте/изменении, glob-хосты, тег `dns-spoofed`, вкладка в Tools
+- [x] **P5. DNS Spoofing** (2026-10-20)
+  - [x] домен: `DnsSpoofEntry`, `RuleSet.dns_spoof`/`dns_spoof_enabled` (старый rules.json — вкл, пусто),
+        `effective_dns_overrides`; `DnsOverride` — шаблон хоста, `spoofed_ip` (первое совпадение, общий
+        `host_pattern_matches`)
+  - [x] движок: подмена в `HttpsConnector` и dial CONNECT; `SetDnsOverrides` при изменении таблицы
+        пересоздаёт `UpstreamClients` (пустые пулы — keep-alive не ходит на старый адрес); тег
+        `dns-spoofed` у обмена (итоговый хост после Map Remote) и туннеля
+  - [x] app: `SetDnsOverrides` при каждом изменении правил и перезапуске движка; Tools → DNS Spoofing,
+        диалог с полем IP (`parse_ip`, `[::1]` допускается), «DNS Spoofing…» в контекстном меню
+  - [x] валидация шаблонов в `UpdateRuleSetUseCase`; тесты `engine/tests/dns_spoof.rs`
+  - [x] документация: раздел DNS Spoofing в `docs/guide.md`, README, CHANGELOG
+  - [ ] ручная проверка в GUI — не делалась агентом
 - [ ] **P6. Map Remote/сеть** (~2 дня): маппинг префикса пути (`path_mode`), Map Remote для WS/WSS,
       пресеты throttle с потерями
 - [ ] **P7.** Крупное — по существующим фазам: Reverse Proxy (Phase 10), resend WS (Phase 11),

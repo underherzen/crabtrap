@@ -58,6 +58,7 @@ gpui_kit::actions!(
         InspectorRight,
         OpenSslProxyingTool,
         OpenAllowList,
+        OpenDnsSpoofing,
         OpenBlockList,
         OpenMapLocal,
         OpenMapRemote,
@@ -90,6 +91,7 @@ fn tool_action(tab: RulesTab) -> Box<dyn Action> {
     match tab {
         RulesTab::SslProxying => Box::new(OpenSslProxyingTool),
         RulesTab::AllowList => Box::new(OpenAllowList),
+        RulesTab::DnsSpoofing => Box::new(OpenDnsSpoofing),
         RulesTab::BlockList => Box::new(OpenBlockList),
         RulesTab::MapLocal => Box::new(OpenMapLocal),
         RulesTab::MapRemote => Box::new(OpenMapRemote),
@@ -395,6 +397,11 @@ fn register_handlers(deps: &AppMenuDeps, cx: &mut App) {
     ));
     on_deferred!(OpenAllowList, |cx| rules_window::open(
         RulesTab::AllowList,
+        None,
+        cx
+    ));
+    on_deferred!(OpenDnsSpoofing, |cx| rules_window::open(
+        RulesTab::DnsSpoofing,
         None,
         cx
     ));

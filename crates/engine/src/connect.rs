@@ -41,7 +41,7 @@ use crate::bypass::SilentPublisher;
 use crate::client::CONNECT_TIMEOUT;
 use crate::commands::{ConnGuard, EngineState};
 use crate::http_proxy::{ProxyService, lenient_host, text_response};
-use crate::tunnel_record::TunnelRecord;
+use crate::tunnel_record::{DNS_SPOOFED_TAG, TunnelRecord};
 
 /// Обработка CONNECT-запроса (вызывается из ProxyService).
 pub(crate) async fn handle_connect(
@@ -103,13 +103,7 @@ pub(crate) fn ssl_mitm_enabled(entries: &[SslProxyEntry], host: &str) -> bool {
 
 /// Dial-first с учётом DNS-override'ов (общих с исходящим коннектором).
 async fn dial_target(state: &EngineState, host: &str, port: u16) -> Result<TcpStream, DialError> {
-    let override_ip = state
-        .dns_overrides
-        .read()
-        .await
-        .iter()
-        .find(|o| o.host.as_str() == host)
-        .map(|o| o.ip);
+    let override_ip = state.spoofed_ip(host).await;
     let connect_fut = async {
         match override_ip {
             Some(ip) => TcpStream::connect(std::net::SocketAddr::new(ip, port)).await,
@@ -277,6 +271,9 @@ async fn passthrough(
         false => Arc::new(SilentPublisher),
     };
     let record = TunnelRecord::start(events, guard.conn_id(), host, port);
+    if state.spoofed_ip(host).await.is_some() {
+        record.tag(DNS_SPOOFED_TAG);
+    }
     // ВАЖНО: дозвон ДО ответа — см. комментарий модуля.
     let target = match dial_target(&state, host, port).await {
         Ok(stream) => stream,

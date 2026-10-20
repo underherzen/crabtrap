@@ -160,6 +160,9 @@ impl EngineSupervisor {
                             .effective_throttle()
                             .map(ThrottleSpecDto::from_profile),
                     });
+                    let _ = tx.try_send(EngineCommand::SetDnsOverrides {
+                        entries: snapshot.effective_dns_overrides(),
+                    });
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "cannot re-push rules after engine restart")

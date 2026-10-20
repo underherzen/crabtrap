@@ -45,6 +45,7 @@ use store::RulesStore;
 pub enum RulesTab {
     SslProxying,
     AllowList,
+    DnsSpoofing,
     BlockList,
     MapLocal,
     MapRemote,
@@ -55,9 +56,10 @@ pub enum RulesTab {
 }
 
 impl RulesTab {
-    pub const ALL: [RulesTab; 9] = [
+    pub const ALL: [RulesTab; 10] = [
         RulesTab::SslProxying,
         RulesTab::AllowList,
+        RulesTab::DnsSpoofing,
         RulesTab::BlockList,
         RulesTab::MapLocal,
         RulesTab::MapRemote,
@@ -72,6 +74,7 @@ impl RulesTab {
         match self {
             RulesTab::SslProxying => Tool::SslProxying,
             RulesTab::AllowList => Tool::AllowList,
+            RulesTab::DnsSpoofing => Tool::DnsSpoofing,
             RulesTab::BlockList => Tool::BlockList,
             RulesTab::MapLocal => Tool::MapLocal,
             RulesTab::MapRemote => Tool::MapRemote,
@@ -86,6 +89,7 @@ impl RulesTab {
         match self {
             RulesTab::SslProxying => AppIcon::ShieldCheck,
             RulesTab::AllowList => AppIcon::Funnel,
+            RulesTab::DnsSpoofing => AppIcon::Server,
             RulesTab::BlockList => AppIcon::Ban,
             RulesTab::MapLocal => AppIcon::FolderOpen,
             RulesTab::MapRemote => AppIcon::Globe,
@@ -100,6 +104,7 @@ impl RulesTab {
         match self {
             RulesTab::SslProxying => "SSL Proxying",
             RulesTab::AllowList => "Allow List",
+            RulesTab::DnsSpoofing => "DNS Spoofing",
             RulesTab::BlockList => "Block List",
             RulesTab::MapLocal => "Map Local",
             RulesTab::MapRemote => "Map Remote",

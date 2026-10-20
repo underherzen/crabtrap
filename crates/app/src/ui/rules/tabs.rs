@@ -71,6 +71,15 @@ fn spec(tab: RulesTab) -> ToolSpec {
             columns: ("Host", "Recording"),
             empty: "No hosts yet. Add one, e.g. api.example.com or *.example.com — or right-click a request → Allow Only.",
         },
+        RulesTab::DnsSpoofing => ToolSpec {
+            tool: Tool::DnsSpoofing,
+            editor: RuleEditor::Dialog(DialogKind::DnsSpoof),
+            id: "dns",
+            enable_label: "Enable DNS Spoofing",
+            description: "These hosts connect to the given IP instead of the address from DNS. The request keeps its Host, SNI and certificate checks — handy for a staging server or a local backend under the production name.",
+            columns: ("Host", "Resolves to"),
+            empty: "No hosts yet. Add one, e.g. api.example.com → 127.0.0.1 — or right-click a request → DNS Spoofing…",
+        },
         RulesTab::BlockList => ToolSpec {
             tool: Tool::BlockList,
             editor: RuleEditor::Dialog(DialogKind::Block),
@@ -212,6 +221,16 @@ fn rows(rules: &RuleSet, tool: Tool) -> Vec<RuleRow> {
                 enabled: e.enabled,
                 location: e.host_pattern.clone(),
                 target: "Recorded".into(),
+            })
+            .collect(),
+        Tool::DnsSpoofing => rules
+            .dns_spoof
+            .iter()
+            .map(|e| RuleRow {
+                id: e.id,
+                enabled: e.enabled,
+                location: e.host_pattern.clone(),
+                target: e.ip.to_string(),
             })
             .collect(),
         Tool::BlockList => rules
@@ -356,6 +375,17 @@ fn init_for_edit(rules: &RuleSet, kind: DialogKind, id: RuleId) -> Option<Dialog
                 ..LocationForm::default()
             })
         }),
+        DialogKind::DnsSpoof => rules
+            .dns_spoof
+            .iter()
+            .find(|e| e.id == id)
+            .map(|e| DialogInit {
+                dns_ip: e.ip.to_string(),
+                ..base(LocationForm {
+                    host: e.host_pattern.clone(),
+                    ..LocationForm::default()
+                })
+            }),
         DialogKind::Block => rules
             .blocks
             .iter()
