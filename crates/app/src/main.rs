@@ -7,6 +7,7 @@
 //! Никакой бизнес-логики: только wiring.
 
 mod app_state;
+mod mirror_worker;
 mod runtime;
 mod shutdown;
 mod tray;
@@ -213,6 +214,16 @@ fn main() {
             ui::websocket_send::install(state.engine_command.clone(), cx);
             // Консоль скриптов (Track S): ScriptLog → окна Script Editor.
             let script_console = ui::scripting::console::ScriptConsoleStore::install(cx);
+            let mirror = mirror_worker::spawn(
+                Arc::new(application::use_cases::mirror::MirrorResponseUseCase::new(
+                    state.exchange_repository.clone(),
+                    state.body_repository.clone(),
+                    state.body_decoder.clone(),
+                    state.rule_repository.clone(),
+                    Arc::new(infrastructure::repositories::FsMirrorFileWriter),
+                )),
+                cx,
+            );
             runtime::pump_events(
                 cx,
                 engine_events,
@@ -222,6 +233,7 @@ fn main() {
                     traffic: traffic_store.clone(),
                     clients,
                     script_console: script_console.clone(),
+                    mirror,
                 },
             );
 

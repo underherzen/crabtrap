@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use application::use_cases::rules::edit::parse_ip;
 use application::use_cases::rules::edit::{
     upsert_allow_host, upsert_block, upsert_breakpoint, upsert_dns_spoof, upsert_map_local,
-    upsert_map_remote, upsert_ssl_host, with_throttle_scope,
+    upsert_map_remote, upsert_mirror, upsert_ssl_host, with_throttle_scope,
 };
 use application::use_cases::rules::location_form::{
     LocationErrors, LocationForm, RemoteTargetForm,
@@ -44,6 +44,7 @@ pub enum DialogKind {
     SslHost,
     AllowHost,
     DnsSpoof,
+    Mirror,
     Block,
     MapLocal,
     MapRemote,
@@ -60,6 +61,8 @@ impl DialogKind {
             (DialogKind::AllowHost, true) => "Edit Allow List host",
             (DialogKind::DnsSpoof, false) => "Spoof DNS for host",
             (DialogKind::DnsSpoof, true) => "Edit DNS Spoofing",
+            (DialogKind::Mirror, false) => "Mirror responses to a folder",
+            (DialogKind::Mirror, true) => "Edit Mirror",
             (DialogKind::Block, false) => "Block location",
             (DialogKind::Block, true) => "Edit blocked location",
             (DialogKind::MapLocal, false) => "Map location to local file",
@@ -76,9 +79,10 @@ impl DialogKind {
     /// запроса для throttle не читается).
     fn match_fields(self) -> MatchFieldsKind {
         match self {
-            DialogKind::SslHost | DialogKind::AllowHost | DialogKind::DnsSpoof => {
-                MatchFieldsKind::HostOnly
-            }
+            DialogKind::SslHost
+            | DialogKind::AllowHost
+            | DialogKind::DnsSpoof
+            | DialogKind::Mirror => MatchFieldsKind::HostOnly,
             DialogKind::ThrottleScope => MatchFieldsKind::NoGraphql,
             DialogKind::Block
             | DialogKind::MapLocal
@@ -269,6 +273,20 @@ impl LocationDialog {
                     }
                     Box::new(move |rules| upsert_dns_spoof(rules, id, &host, &ip))
                 }
+                DialogKind::Mirror => {
+                    let host = form.normalized().host;
+                    let folder = text(&self.local_path, cx);
+                    if folder.is_empty() {
+                        self.errors = Errors {
+                            target: Some("Choose a folder to save responses to".into()),
+                            ..Errors::default()
+                        };
+                        cx.notify();
+                        return false;
+                    }
+                    let folder = expand_home(&folder);
+                    Box::new(move |rules| upsert_mirror(rules, id, &host, folder))
+                }
                 DialogKind::Block => {
                     let action = if self.block_close {
                         BlockAction::Close
@@ -352,12 +370,14 @@ impl LocationDialog {
         false
     }
 
+    /// Finder: файл или папка для Map Local, только папка для Mirror.
     fn choose_local_path(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mirror = self.kind == DialogKind::Mirror;
         let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
+            files: !mirror,
             directories: true,
             multiple: false,
-            prompt: Some("Serve".into()),
+            prompt: Some(if mirror { "Save Here" } else { "Serve" }.into()),
         });
         let input = self.local_path.clone();
         cx.spawn_in(window, async move |_, cx| {
@@ -412,22 +432,7 @@ impl Render for LocationDialog {
                 danger,
             )),
             DialogKind::MapLocal => body
-                .child(row(
-                    "Local path",
-                    div()
-                        .flex()
-                        .gap(px(8.))
-                        .child(div().flex_1().child(Input::new(&self.local_path)))
-                        .child(Button::new("dialog-choose").label("Choose…").on_click({
-                            let weak = weak.clone();
-                            move |_, window, cx| {
-                                let _ = weak.update(cx, |d, cx| d.choose_local_path(window, cx));
-                            }
-                        }))
-                        .into_any_element(),
-                    self.errors.target.clone(),
-                    danger,
-                ))
+                .child(self.local_path_row("Local path", &weak, danger))
                 .child(row(
                     "Status",
                     div()
@@ -633,6 +638,18 @@ impl Render for LocationDialog {
                 self.errors.target.clone(),
                 danger,
             )),
+            DialogKind::Mirror => body
+                .child(self.local_path_row("Save to", &weak, danger))
+                .child(
+                    div()
+                        .pl(px(LABEL_WIDTH + 8.))
+                        .text_size(px(12.))
+                        .text_color(muted)
+                        .child(
+                            "Responses are saved as <folder>/<host>/<path>, decompressed; \
+                             / becomes index.html. A newer response replaces the file.",
+                        ),
+                ),
             DialogKind::ThrottleScope | DialogKind::AllowHost => body,
         };
         body.when_some(self.errors.save.clone(), |el, err| {
@@ -643,6 +660,33 @@ impl Render for LocationDialog {
                     .child(format!("⚠ {err}")),
             )
         })
+    }
+}
+
+impl LocationDialog {
+    /// Строка пути с кнопкой Finder (Map Local, Mirror).
+    fn local_path_row(
+        &self,
+        label: &str,
+        weak: &gpui_kit::WeakEntity<LocationDialog>,
+        danger: gpui_kit::Hsla,
+    ) -> gpui_kit::AnyElement {
+        row(
+            label,
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(div().flex_1().child(Input::new(&self.local_path)))
+                .child(Button::new("dialog-choose").label("Choose…").on_click({
+                    let weak = weak.clone();
+                    move |_, window, cx| {
+                        let _ = weak.update(cx, |d, cx| d.choose_local_path(window, cx));
+                    }
+                }))
+                .into_any_element(),
+            self.errors.target.clone(),
+            danger,
+        )
     }
 }
 

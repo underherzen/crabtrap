@@ -347,6 +347,8 @@ pub struct PumpTargets {
     pub clients: gpui_kit::Entity<ClientsStore>,
     /// Консоль скриптов (Track S).
     pub script_console: gpui_kit::Entity<ScriptConsoleStore>,
+    /// Поток Mirror: завершённые обмены (`None` — поток не стартовал).
+    pub mirror: Option<crate::mirror_worker::MirrorQueue>,
 }
 
 pub fn pump_events(
@@ -360,6 +362,7 @@ pub fn pump_events(
         traffic: traffic_store,
         clients,
         script_console,
+        mirror,
     } = targets;
     cx.spawn(async move |cx| {
         loop {
@@ -393,6 +396,14 @@ pub fn pump_events(
                 ClientsStore::on_events(&clients, &batch, app);
                 crate::ui::breakpoint::on_events(&batch, app);
                 notify_engine_errors(&batch, app);
+                // После recorder'а: ответ уже в репозитории.
+                if let Some(mirror) = &mirror {
+                    for event in &batch {
+                        if let ProxyEvent::ExchangeCompleted { id, .. } = event {
+                            mirror.completed(*id);
+                        }
+                    }
+                }
                 script_console.update(app, |console, cx| {
                     if console.apply_batch(&batch) {
                         cx.notify();

@@ -10,6 +10,7 @@ mod event_publisher;
 mod export_file_writer;
 mod import_file_reader;
 mod interception_pipeline;
+mod mirror_file_writer;
 mod mock_file_store;
 mod proxy_engine_service;
 mod release_feed;
@@ -29,6 +30,7 @@ pub use interception_pipeline::{
     AbortMode, ConnectDecision, InterceptContext, InterceptOutcome, InterceptableMessage,
     RouteDecision,
 };
+pub use mirror_file_writer::MirrorFileWriter;
 pub use mock_file_store::MockFileStore;
 pub use proxy_engine_service::ProxyEngineService;
 pub use release_feed::ReleaseFeed;

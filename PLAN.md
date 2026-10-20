@@ -391,7 +391,7 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
 
 - [ ] HAR-сериализатор (serde: log/entries/startedDateTime/timings-маппинг из TimingPhases/content base64, опция «без тел»)
 - [x] Сессии — файлом `.crabtrap` по выбранному пути (Track P7), вместо каталога сессий
-- [ ] Mirror responses to disk (дерево host/path)
+- [x] Mirror responses to disk (дерево host/path) — Track P7
 - [ ] UI: менеджер сессий, меню Export HAR
 
 **Проверка**: HAR валиден (Chrome DevTools / har-validator); сессия 1000 обменов сохраняется/загружается (тела и timings на месте); mirror раскладывает файлы по дереву.
@@ -507,7 +507,7 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
         `dropped`; пресеты Lossy 3G, Very Bad Network, 100% Loss; поле Drop % в UI; `ThrottleValues`
   - [x] документация: Map Remote и Throttle в `docs/guide.md`, CHANGELOG
   - [ ] ручная проверка в GUI — не делалась агентом
-- [ ] **P7.** Крупное — по существующим фазам: Reverse Proxy (Phase 10), resend WS (Phase 11),
+- [x] **P7.** Крупное — по существующим фазам: Reverse Proxy (Phase 10), resend WS (Phase 11),
       сессии/mirror (Phase 8)
   - [x] Reverse Proxy (2026-10-20): `ReverseProxyEntry` в RuleSet (`reverse_proxy_enabled`, старый
         rules.json — вкл, пусто), `effective_reverse_proxies`; `EngineCommand::SetReverseProxies` —
@@ -526,7 +526,11 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
         Pending → Aborted, частичный импорт при битом хвосте); порт `ImportFileReader`;
         `TrafficStore::import`; File → Open/Save Session (⌘O/⌘S), Import HAR…; инспектор берёт
         сжатие из `BodyRef.encoding`
-  - [ ] mirror
+  - [x] mirror (2026-10-20): `MirrorEntry` в RuleSet (`mirror_enabled`), `mirror_folder_for`;
+        `MirrorResponseUseCase` (распаковка, `mirror_path`: `<host>[_port]/<сегменты>`, `index.html`,
+        обезвреживание `..`/разделителей, 255 байт на имя) + порт `MirrorFileWriter`
+        (`FsMirrorFileWriter`: каталоги, tmp + rename, повторная проверка пути); поток
+        `mirror_worker` (очередь 1024, ошибки → уведомление без повторов); Tools → Mirror
 
 **Проверка**: на каждую подфазу — `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,
 `cargo test --workspace`; ручная — собственный тестовый инстанс на отдельном порту + `curl -x`.

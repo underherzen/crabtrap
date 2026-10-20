@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use domain::DomainError;
 use domain::entities::rule::{
     AllowEntry, BlockAction, BlockRule, BreakPhase, BreakpointRule, DEFAULT_MAP_LOCAL_STATUS,
-    DnsSpoofEntry, MapLocalRule, MapRemoteRule, RemotePathMode, ReverseProxyEntry, RewriteLocation,
-    RewriteOp, RewriteRule, RuleSet, SslProxyEntry, ThrottleProfile,
+    DnsSpoofEntry, MapLocalRule, MapRemoteRule, MirrorEntry, RemotePathMode, ReverseProxyEntry,
+    RewriteLocation, RewriteOp, RewriteRule, RuleSet, SslProxyEntry, ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
 use domain::value_objects::http_vo::HeaderEntry;
@@ -369,6 +369,30 @@ pub fn upsert_reverse_proxy(
     }
 }
 
+/// Запись Mirror: новая или правка существующей.
+pub fn upsert_mirror(
+    rules: RuleSet,
+    id: Option<RuleId>,
+    location: &str,
+    folder: PathBuf,
+) -> Result<RuleSet, DomainError> {
+    let host = location_host(location)?;
+    Ok(RuleSet {
+        mirror: upsert(
+            rules.mirror,
+            id,
+            |r| r.id,
+            |old| MirrorEntry {
+                id: old.map(|o| o.id).unwrap_or_else(RuleId::new),
+                host_pattern: host,
+                folder,
+                enabled: old.is_none_or(|o| o.enabled),
+            },
+        ),
+        ..rules
+    })
+}
+
 /// IP-адрес из поля формы (скобки IPv6 допускаются).
 pub fn parse_ip(input: &str) -> Result<std::net::IpAddr, DomainError> {
     let trimmed = input.trim();
@@ -489,6 +513,15 @@ pub fn with_rule_duplicated(rules: RuleSet, id: RuleId) -> RuleSet {
                 ..r
             },
         ),
+        mirror: dup(
+            rules.mirror,
+            id,
+            |r| r.id,
+            |r| MirrorEntry {
+                id: RuleId::new(),
+                ..r
+            },
+        ),
         // Копия занимала бы тот же порт — создаётся выключенной.
         reverse_proxies: dup(
             rules.reverse_proxies,
@@ -511,6 +544,7 @@ pub enum Tool {
     AllowList,
     DnsSpoofing,
     ReverseProxy,
+    Mirror,
     BlockList,
     MapLocal,
     MapRemote,
@@ -526,6 +560,7 @@ pub fn tool_enabled(rules: &RuleSet, tool: Tool) -> bool {
         Tool::AllowList => rules.allow_enabled,
         Tool::DnsSpoofing => rules.dns_spoof_enabled,
         Tool::ReverseProxy => rules.reverse_proxy_enabled,
+        Tool::Mirror => rules.mirror_enabled,
         Tool::BlockList => rules.blocks_enabled,
         Tool::MapLocal => rules.map_local_enabled,
         Tool::MapRemote => rules.map_remote_enabled,
@@ -549,6 +584,10 @@ pub fn with_tool_enabled(rules: RuleSet, tool: Tool, enabled: bool) -> RuleSet {
         },
         Tool::ReverseProxy => RuleSet {
             reverse_proxy_enabled: enabled,
+            ..rules
+        },
+        Tool::Mirror => RuleSet {
+            mirror_enabled: enabled,
             ..rules
         },
         Tool::BlockList => RuleSet {
@@ -663,6 +702,7 @@ pub fn without_rule(rules: RuleSet, id: RuleId) -> RuleSet {
             .into_iter()
             .filter(|r| r.id != id)
             .collect(),
+        mirror: rules.mirror.into_iter().filter(|r| r.id != id).collect(),
         ..rules
     }
 }
@@ -788,6 +828,14 @@ pub fn with_rule_toggled(rules: RuleSet, id: RuleId) -> RuleSet {
             .reverse_proxies
             .into_iter()
             .map(|r| ReverseProxyEntry {
+                enabled: r.enabled != (r.id == id),
+                ..r
+            })
+            .collect(),
+        mirror: rules
+            .mirror
+            .into_iter()
+            .map(|r| MirrorEntry {
                 enabled: r.enabled != (r.id == id),
                 ..r
             })
@@ -974,6 +1022,29 @@ mod tests {
         let off = with_tool_enabled(edited, Tool::ReverseProxy, false);
         assert!(!tool_enabled(&off, Tool::ReverseProxy));
         assert!(off.effective_reverse_proxies().is_empty());
+    }
+
+    #[test]
+    fn mirror_entries_take_part_in_generic_rule_edits() {
+        let rules = upsert_mirror(
+            RuleSet::default(),
+            None,
+            "https://API.test/v1",
+            PathBuf::from("/tmp/mirror"),
+        )
+        .expect("ok");
+        assert_eq!(rules.mirror[0].host_pattern, "api.test");
+        let id = rules.mirror[0].id;
+        let edited =
+            upsert_mirror(rules, Some(id), "*.api.test", PathBuf::from("/tmp/m2")).expect("ok");
+        assert_eq!(edited.mirror.len(), 1);
+        assert_eq!(edited.mirror[0].folder, PathBuf::from("/tmp/m2"));
+        assert!(!with_rule_toggled(edited.clone(), id).mirror[0].enabled);
+        assert_eq!(with_rule_duplicated(edited.clone(), id).mirror.len(), 2);
+        assert!(without_rule(edited.clone(), id).mirror.is_empty());
+        let off = with_tool_enabled(edited, Tool::Mirror, false);
+        assert!(!tool_enabled(&off, Tool::Mirror));
+        assert_eq!(off.mirror_folder_for("x.api.test"), None);
     }
 
     #[test]

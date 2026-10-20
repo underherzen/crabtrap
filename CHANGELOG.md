@@ -19,6 +19,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   everything else is proxied unrecorded and untouched. A status bar note shows when it is on.
 - **Copy as cURL** and **Export as HAR…** in the traffic context menu; **File → Export Session as
   HAR…** (with or without bodies).
+- **Mirror** (Tools): save decompressed successful (200) GET responses of chosen hosts to a folder as
+  `<host>/<path>`.
 - **File → Save Session… / Open Session…** (`.crabtrap`: requests, bodies, timings, tags and
   WebSocket messages) and **File → Import HAR…** (Chrome, Charles, Proxyman, crabtrap; Chrome's
   WebSocket messages included). Opened requests are added to the list, tagged `imported`.

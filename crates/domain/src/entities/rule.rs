@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub use super::allow_list::AllowEntry;
 pub use super::dns_spoof::DnsSpoofEntry;
+pub use super::mirror::MirrorEntry;
 pub use super::reverse_proxy::ReverseProxyEntry;
 use super::script_rule::ScriptRule;
 pub use super::ssl_proxy::SslProxyEntry;
@@ -62,6 +63,10 @@ pub struct RuleSet {
     pub reverse_proxy_enabled: bool,
     /// Локальные порты → целевые серверы.
     pub reverse_proxies: Vec<ReverseProxyEntry>,
+    /// Галочка «Enable Mirror». Старый rules.json — `true` (записей нет).
+    pub mirror_enabled: bool,
+    /// Хосты, ответы которых сохраняются на диск.
+    pub mirror: Vec<MirrorEntry>,
 }
 
 impl Default for RuleSet {
@@ -91,6 +96,8 @@ impl Default for RuleSet {
             dns_spoof: Vec::new(),
             reverse_proxy_enabled: true,
             reverse_proxies: Vec::new(),
+            mirror_enabled: true,
+            mirror: Vec::new(),
         }
     }
 }

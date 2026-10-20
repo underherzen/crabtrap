@@ -48,6 +48,7 @@ pub enum RulesTab {
     AllowList,
     DnsSpoofing,
     ReverseProxy,
+    Mirror,
     BlockList,
     MapLocal,
     MapRemote,
@@ -58,11 +59,12 @@ pub enum RulesTab {
 }
 
 impl RulesTab {
-    pub const ALL: [RulesTab; 11] = [
+    pub const ALL: [RulesTab; 12] = [
         RulesTab::SslProxying,
         RulesTab::AllowList,
         RulesTab::DnsSpoofing,
         RulesTab::ReverseProxy,
+        RulesTab::Mirror,
         RulesTab::BlockList,
         RulesTab::MapLocal,
         RulesTab::MapRemote,
@@ -79,6 +81,7 @@ impl RulesTab {
             RulesTab::AllowList => Tool::AllowList,
             RulesTab::DnsSpoofing => Tool::DnsSpoofing,
             RulesTab::ReverseProxy => Tool::ReverseProxy,
+            RulesTab::Mirror => Tool::Mirror,
             RulesTab::BlockList => Tool::BlockList,
             RulesTab::MapLocal => Tool::MapLocal,
             RulesTab::MapRemote => Tool::MapRemote,
@@ -95,6 +98,7 @@ impl RulesTab {
             RulesTab::AllowList => AppIcon::Funnel,
             RulesTab::DnsSpoofing => AppIcon::Server,
             RulesTab::ReverseProxy => AppIcon::ArrowDownUp,
+            RulesTab::Mirror => AppIcon::Layers,
             RulesTab::BlockList => AppIcon::Ban,
             RulesTab::MapLocal => AppIcon::FolderOpen,
             RulesTab::MapRemote => AppIcon::Globe,
@@ -111,6 +115,7 @@ impl RulesTab {
             RulesTab::AllowList => "Allow List",
             RulesTab::DnsSpoofing => "DNS Spoofing",
             RulesTab::ReverseProxy => "Reverse Proxy",
+            RulesTab::Mirror => "Mirror",
             RulesTab::BlockList => "Block List",
             RulesTab::MapLocal => "Map Local",
             RulesTab::MapRemote => "Map Remote",

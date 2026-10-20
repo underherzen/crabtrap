@@ -17,7 +17,7 @@
 - **Traffic** — live table with filters (`host:`, `status:4xx`, `method:`, `type:`, `re:`), full-text search in headers and bodies, sidebar grouped by domain and app.
 - **Inspectors** — headers, query, cookies, JSON/text/hex/image bodies, timing, WebSocket messages.
 - **HTTP/2 and WebSockets.**
-- **Tools** — Allow List, DNS Spoofing, Reverse Proxy, Block List, Map Local (files or folders, custom status and headers, one-click
+- **Tools** — Allow List, DNS Spoofing, Reverse Proxy, Mirror, Block List, Map Local (files or folders, custom status and headers, one-click
   "Save Response & Map Local"), Map Remote, Throttle, Rewrite, Breakpoints, and JavaScript **Scripting**.
 - **Repeat, Edit & Resend, Compose**, **WebSocket Resend / Send Message**, **Copy as cURL / fetch / fetch (Node.js)**, **HAR export and import**, **Save / Open Session** (`.crabtrap`).
 - macOS system proxy toggle, menu bar icon, status bar warnings, Check for Updates.

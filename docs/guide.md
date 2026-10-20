@@ -175,6 +175,24 @@ and show up in the traffic table, tagged `reverse-proxy`.
 - When the proxy accepts devices (listens on all interfaces), reverse ports are open to the network
   too, without authentication, just like the proxy port itself.
 
+## Mirror
+
+Saves the responses of chosen hosts to a folder, like Charles's Mirror: you get a copy of a site
+or an API as the client saw it.
+- Add a host and a folder in **Tools → Mirror**. Patterns work like in SSL Proxying:
+  `api.example.com`, or `*.example.com`, which also matches `example.com` itself.
+- Each successful (`200`) `GET` response is saved as `<folder>/<host>/<path>`, decompressed. `/` and
+  paths that end with `/` become `index.html`, the query string is dropped, and a port goes into
+  the folder name (`api.test_8080`). A newer response for the same path replaces the file; an error,
+  a partial (`206`) response or a `POST` to that path doesn't.
+- A path can be both a resource and a collection (`/users` and `/users/7`). Then `/users` is saved
+  as `users/index.html`, next to `users/7`, whichever came first.
+- Path segments are cleaned: `..` and separators can't take a file outside the folder.
+- Only recorded responses with a stored body are mirrored. Traffic outside the Allow List, bodies
+  over the capture limit and failed requests are skipped.
+- If a file can't be written (a full disk, no permission), a notification says so, at most once
+  every 10 seconds; every failure is in the log.
+
 ## Map Local
 
 Answers matching requests with a file from your Mac. The request never reaches the server.

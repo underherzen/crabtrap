@@ -9,6 +9,7 @@ pub mod certificates;
 pub mod compose;
 pub mod export;
 pub mod inspection;
+pub mod mirror;
 pub mod proxy_config;
 pub mod rules;
 pub mod scripting;

@@ -93,6 +93,15 @@ fn spec(tab: RulesTab) -> ToolSpec {
             columns: ("Local port", "Forward to"),
             empty: "No reverse proxies. Add one, e.g. 9090 → https://api.example.com.",
         },
+        RulesTab::Mirror => ToolSpec {
+            tool: Tool::Mirror,
+            editor: RuleEditor::Dialog(DialogKind::Mirror),
+            id: "mirror",
+            enable_label: "Enable Mirror",
+            description: "Responses from these hosts are saved to a folder as <host>/<path>, so you get a copy of the site or API as the client saw it. A newer response replaces the file.",
+            columns: ("Host", "Save to"),
+            empty: "Nothing is mirrored. Add a host and a folder, e.g. api.example.com → ~/Mirror.",
+        },
         RulesTab::BlockList => ToolSpec {
             tool: Tool::BlockList,
             editor: RuleEditor::Dialog(DialogKind::Block),
@@ -279,6 +288,16 @@ fn rows(rules: &RuleSet, tool: Tool) -> Vec<RuleRow> {
                 },
             })
             .collect(),
+        Tool::Mirror => rules
+            .mirror
+            .iter()
+            .map(|e| RuleRow {
+                id: e.id,
+                enabled: e.enabled,
+                location: e.host_pattern.clone(),
+                target: e.folder.display().to_string(),
+            })
+            .collect(),
         Tool::BlockList => rules
             .blocks
             .iter()
@@ -438,6 +457,17 @@ fn init_for_edit(rules: &RuleSet, kind: DialogKind, id: RuleId) -> Option<Dialog
             .find(|e| e.id == id)
             .map(|e| DialogInit {
                 dns_ip: e.ip.to_string(),
+                ..base(LocationForm {
+                    host: e.host_pattern.clone(),
+                    ..LocationForm::default()
+                })
+            }),
+        DialogKind::Mirror => rules
+            .mirror
+            .iter()
+            .find(|e| e.id == id)
+            .map(|e| DialogInit {
+                local_path: e.folder.display().to_string(),
                 ..base(LocationForm {
                     host: e.host_pattern.clone(),
                     ..LocationForm::default()

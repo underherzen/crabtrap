@@ -63,6 +63,7 @@ gpui_kit::actions!(
         OpenAllowList,
         OpenDnsSpoofing,
         OpenReverseProxy,
+        OpenMirror,
         OpenBlockList,
         OpenMapLocal,
         OpenMapRemote,
@@ -97,6 +98,7 @@ fn tool_action(tab: RulesTab) -> Box<dyn Action> {
         RulesTab::AllowList => Box::new(OpenAllowList),
         RulesTab::DnsSpoofing => Box::new(OpenDnsSpoofing),
         RulesTab::ReverseProxy => Box::new(OpenReverseProxy),
+        RulesTab::Mirror => Box::new(OpenMirror),
         RulesTab::BlockList => Box::new(OpenBlockList),
         RulesTab::MapLocal => Box::new(OpenMapLocal),
         RulesTab::MapRemote => Box::new(OpenMapRemote),
@@ -421,6 +423,11 @@ fn register_handlers(deps: &AppMenuDeps, cx: &mut App) {
     ));
     on_deferred!(OpenReverseProxy, |cx| rules_window::open(
         RulesTab::ReverseProxy,
+        None,
+        cx
+    ));
+    on_deferred!(OpenMirror, |cx| rules_window::open(
+        RulesTab::Mirror,
         None,
         cx
     ));

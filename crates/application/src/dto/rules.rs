@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use domain::entities::rule::BreakPhase;
 use domain::entities::rule::{
-    AllowEntry, BlockRule, BreakpointRule, DnsSpoofEntry, MapLocalRule, MapRemoteRule,
+    AllowEntry, BlockRule, BreakpointRule, DnsSpoofEntry, MapLocalRule, MapRemoteRule, MirrorEntry,
     ReverseProxyEntry, RewriteRule, RuleSet, SslProxyEntry, ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
@@ -63,6 +63,10 @@ pub struct RuleSetDto {
     pub reverse_proxy_enabled: bool,
     #[serde(default)]
     pub reverse_proxies: Vec<ReverseProxyEntry>,
+    #[serde(default = "default_true")]
+    pub mirror_enabled: bool,
+    #[serde(default)]
+    pub mirror: Vec<MirrorEntry>,
 }
 
 fn default_true() -> bool {
@@ -102,6 +106,8 @@ impl RuleSetDto {
             dns_spoof: rules.dns_spoof.clone(),
             reverse_proxy_enabled: rules.reverse_proxy_enabled,
             reverse_proxies: rules.reverse_proxies.clone(),
+            mirror_enabled: rules.mirror_enabled,
+            mirror: rules.mirror.clone(),
         }
     }
 
@@ -131,6 +137,8 @@ impl RuleSetDto {
             dns_spoof: self.dns_spoof,
             reverse_proxy_enabled: self.reverse_proxy_enabled,
             reverse_proxies: self.reverse_proxies,
+            mirror_enabled: self.mirror_enabled,
+            mirror: self.mirror,
         }
     }
 }

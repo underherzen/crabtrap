@@ -216,6 +216,24 @@ fn validate(rules: &RuleSet) -> Result<(), DomainError> {
         }
     }
 
+    for entry in &rules.mirror {
+        check_id(entry.id, "mirror")?;
+        let pattern = entry.host_pattern.trim();
+        if pattern.is_empty() || pattern.contains(char::is_whitespace) {
+            return Err(DomainError::ValidationError(format!(
+                "mirror entry {}: host pattern {:?} is empty or has spaces",
+                entry.id, entry.host_pattern
+            )));
+        }
+        if !entry.folder.is_absolute() {
+            return Err(DomainError::ValidationError(format!(
+                "mirror {}: the folder must be an absolute path, got {}",
+                entry.host_pattern,
+                entry.folder.display()
+            )));
+        }
+    }
+
     let mut ports = std::collections::HashSet::new();
     for entry in &rules.reverse_proxies {
         check_id(entry.id, "reverse_proxy")?;
@@ -577,6 +595,18 @@ mod tests {
             validate(&rewrite).is_err(),
             "rewrite matches are checked too"
         );
+    }
+
+    #[test]
+    fn mirror_entries_are_validated() {
+        use domain::entities::rule::MirrorEntry;
+        let with = |pattern: &str, folder: &str| RuleSet {
+            mirror: vec![MirrorEntry::new(pattern, folder)],
+            ..Default::default()
+        };
+        assert!(validate(&with("*.example.com", "/Users/me/mirror")).is_ok());
+        assert!(validate(&with("", "/tmp")).is_err());
+        assert!(validate(&with("a.com", "relative/dir")).is_err());
     }
 
     #[test]

@@ -3,6 +3,7 @@ mod certificate_store;
 mod exchange_store;
 mod export_file_writer;
 mod import_file_reader;
+mod mirror_file_writer;
 mod mock_file_store;
 mod rule_store;
 
@@ -11,5 +12,6 @@ pub use certificate_store::FileCertificateRepository;
 pub use exchange_store::InMemoryExchangeRepository;
 pub use export_file_writer::FsExportFileWriter;
 pub use import_file_reader::FsImportFileReader;
+pub use mirror_file_writer::FsMirrorFileWriter;
 pub use mock_file_store::DirectoryMockFileStore;
 pub use rule_store::FileRuleRepository;
