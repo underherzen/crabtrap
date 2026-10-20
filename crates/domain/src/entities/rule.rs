@@ -307,10 +307,7 @@ impl RuleSet {
         self.breakpoints.iter().find(|rule| {
             rule.enabled
                 && rule.phase.covers(phase)
-                && rule.r#match.body_regex.is_none()
-                && rule
-                    .r#match
-                    .matches(facts.host, facts.path, facts.method, None, None)
+                && super::rule_routing::matches_request(&rule.r#match, facts)
         })
     }
 }
@@ -510,6 +507,7 @@ mod tests {
             host: "api.test",
             path: "/",
             method: "GET",
+            ..Default::default()
         };
         let rules = RuleSet {
             breakpoints: vec![

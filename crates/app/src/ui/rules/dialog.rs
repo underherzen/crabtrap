@@ -11,7 +11,7 @@ use application::use_cases::rules::edit::{
     with_throttle_scope,
 };
 use application::use_cases::rules::location_form::{
-    LocationErrors, LocationForm, METHODS, RemoteTargetForm,
+    LocationErrors, LocationForm, RemoteTargetForm,
 };
 use application::use_cases::rules::response_form::{ResponseErrors, ResponseForm};
 use domain::entities::rule::{BlockAction, BreakPhase, RuleSet};
@@ -22,19 +22,17 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::dialog::{DialogButtonProps, DialogFooter};
-use gpui_kit::component::input::{Editor, EditorState, Input, InputEvent, InputState};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::input::{Editor, EditorState, Input, InputState};
 use gpui_kit::component::radio::Radio;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement,
-    PathPromptOptions, Render, Styled, Subscription, Window, div, px,
+    App, AppContext as _, Context, Entity, IntoElement, ParentElement, PathPromptOptions, Render,
+    Styled, Window, div, px,
 };
 
+use super::match_fields::{LABEL_WIDTH, MatchFields, MatchFieldsKind, row};
 use super::store::RulesStore;
 
-/// Ширина подписи слева от поля.
-const LABEL_WIDTH: f32 = 96.;
 const DIALOG_WIDTH: f32 = 560.;
 /// Высота редактора заголовков ответа Map Local (≈4 строки).
 const HEADERS_EDITOR_HEIGHT: f32 = 84.;
@@ -67,8 +65,17 @@ impl DialogKind {
         }
     }
 
-    fn has_path(self) -> bool {
-        self != DialogKind::SslHost
+    /// Поля условия: SSL — только хост; Throttle — без GraphQL (тело
+    /// запроса для throttle не читается).
+    fn match_fields(self) -> MatchFieldsKind {
+        match self {
+            DialogKind::SslHost => MatchFieldsKind::HostOnly,
+            DialogKind::ThrottleScope => MatchFieldsKind::NoGraphql,
+            DialogKind::Block
+            | DialogKind::MapLocal
+            | DialogKind::MapRemote
+            | DialogKind::Breakpoint => MatchFieldsKind::Full,
+        }
     }
 }
 
@@ -106,7 +113,6 @@ pub struct DialogInit {
 
 #[derive(Default)]
 struct Errors {
-    location: LocationErrors,
     target: Option<String>,
     response: ResponseErrors,
     /// Сохранение не удалось (валидация use case, IO) — диалог открыт.
@@ -117,9 +123,8 @@ pub struct LocationDialog {
     kind: DialogKind,
     editing: Option<RuleId>,
     store: Entity<RulesStore>,
-    host: Entity<InputState>,
-    path: Entity<InputState>,
-    method: Option<String>,
+    /// Условие: Host / Path / Regex / Method / GraphQL / Test URL.
+    location: Entity<MatchFields>,
     block_close: bool,
     ssl_exclude: bool,
     local_path: Entity<InputState>,
@@ -136,7 +141,6 @@ pub struct LocationDialog {
     keep_host: bool,
     break_phase: BreakPhase,
     errors: Errors,
-    _subscriptions: Vec<Subscription>,
 }
 
 impl LocationDialog {
@@ -162,11 +166,6 @@ impl LocationDialog {
             path: String::new(),
             query: String::new(),
         });
-        let host = input(
-            "api.example.com  or  *.example.com  (paste a URL to split it)",
-            &init.location.host,
-        );
-        let path = input("/api/*   (empty — any path)", &init.location.path);
         let local_path = input("/Users/me/mocks/users.json", &init.local_path);
         let status = input("200", &init.response.status);
         let content_type = input("auto — from file extension", &init.response.content_type);
@@ -178,18 +177,13 @@ impl LocationDialog {
             state.set_value(init.response.headers.clone(), window, cx);
             state
         });
-        // Предпросмотр «Matches: …» обновляется при вводе.
-        let subscriptions = [&host, &path]
-            .into_iter()
-            .map(|input| cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify()))
-            .collect();
+        let location =
+            cx.new(|cx| MatchFields::new(kind.match_fields(), &init.location, window, cx));
         Self {
             kind,
             editing: init.editing,
             store,
-            host,
-            path,
-            method: init.location.method,
+            location,
             block_close: init.block_close,
             ssl_exclude: init.ssl_exclude,
             local_path,
@@ -204,16 +198,11 @@ impl LocationDialog {
             keep_host: init.keep_host,
             break_phase: init.break_phase,
             errors: Errors::default(),
-            _subscriptions: subscriptions,
         }
     }
 
     fn form(&self, cx: &App) -> LocationForm {
-        LocationForm {
-            host: self.host.read(cx).value().to_string(),
-            path: self.path.read(cx).value().to_string(),
-            method: self.method.clone(),
-        }
+        self.location.read(cx).form(cx)
     }
 
     /// Проверить форму и сохранить правило. Диалог закрывается только после
@@ -225,14 +214,16 @@ impl LocationDialog {
         let location = match form.to_match() {
             Ok(m) => m,
             Err(errors) => {
-                self.errors = Errors {
-                    location: errors,
-                    ..Errors::default()
-                };
+                self.location
+                    .update(cx, |fields, cx| fields.set_errors(errors, cx));
+                self.errors = Errors::default();
                 cx.notify();
                 return false;
             }
         };
+        self.location.update(cx, |fields, cx| {
+            fields.set_errors(LocationErrors::default(), cx)
+        });
         let id = self.editing;
         let edit: Box<dyn FnOnce(RuleSet) -> Result<RuleSet, domain::DomainError> + Send> =
             match self.kind {
@@ -348,52 +339,12 @@ impl Render for LocationDialog {
         let theme = cx.theme();
         let (danger, muted) = (theme.danger, theme.muted_foreground);
         let weak = cx.entity().downgrade();
-        let method_label = format!("{} ▾", self.method.as_deref().unwrap_or("Any method"));
-        let method = Button::new("dialog-method")
-            .label(method_label)
-            .dropdown_menu({
-                let weak = weak.clone();
-                move |menu, _, _| {
-                    let choices =
-                        std::iter::once(None).chain(METHODS.iter().map(|m| Some(m.to_string())));
-                    choices.fold(menu, |menu, choice| {
-                        let weak = weak.clone();
-                        let label = choice.clone().unwrap_or_else(|| "Any method".into());
-                        menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                            let _ = weak.update(cx, |d, cx| {
-                                d.method = choice.clone();
-                                cx.notify();
-                            });
-                        }))
-                    })
-                }
-            });
-
-        let mut body = div().flex().flex_col().gap(px(10.));
-        body = body.child(row(
-            "Host",
-            Input::new(&self.host).into_any_element(),
-            self.errors.location.host.clone(),
-            danger,
-        ));
-        if self.kind.has_path() {
-            body = body
-                .child(row(
-                    "Path",
-                    Input::new(&self.path).into_any_element(),
-                    self.errors.location.path.clone(),
-                    danger,
-                ))
-                .child(row("Method", method.into_any_element(), None, danger))
-                .child(
-                    div()
-                        .pl(px(LABEL_WIDTH + 8.))
-                        .text_size(px(12.))
-                        .text_color(muted)
-                        .child(format!("Matches: {}", self.form(cx).preview())),
-                );
-        }
-        body = match self.kind {
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(self.location.clone());
+        let body = match self.kind {
             DialogKind::Block => body.child(row(
                 "Action",
                 div()
@@ -625,39 +576,6 @@ fn set_flag(
     });
 }
 
-/// Строка формы: подпись слева, поле, ошибка под полем.
-fn row(
-    label: &str,
-    field: AnyElement,
-    error: Option<String>,
-    danger: gpui_kit::Hsla,
-) -> AnyElement {
-    div()
-        .flex()
-        .items_start()
-        .gap(px(8.))
-        .child(
-            div()
-                .w(px(LABEL_WIDTH))
-                .flex_none()
-                .pt(px(6.))
-                .text_size(px(13.))
-                .child(label.to_string()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(field)
-                .when_some(error, |el, err| {
-                    el.child(div().text_size(px(12.)).text_color(danger).child(err))
-                }),
-        )
-        .into_any_element()
-}
-
 /// `~/x` → `$HOME/x`.
 fn expand_home(path: &str) -> PathBuf {
     match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
@@ -720,8 +638,15 @@ mod tests {
             "Map location to local file"
         );
         assert_eq!(DialogKind::MapLocal.title(true), "Edit Map Local");
-        assert!(!DialogKind::SslHost.has_path());
-        assert!(DialogKind::Block.has_path());
+        assert_eq!(
+            DialogKind::SslHost.match_fields(),
+            MatchFieldsKind::HostOnly
+        );
+        assert_eq!(
+            DialogKind::ThrottleScope.match_fields(),
+            MatchFieldsKind::NoGraphql
+        );
+        assert_eq!(DialogKind::Block.match_fields(), MatchFieldsKind::Full);
     }
 
     #[test]

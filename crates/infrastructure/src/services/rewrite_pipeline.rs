@@ -7,13 +7,14 @@
 use std::sync::{Arc, RwLock};
 
 use application::dto::rules::InterceptResolutionDto;
+use application::matching::RequestTarget;
 use application::services::{
     BodyDecoderService, ConnectDecision, InterceptContext, InterceptOutcome, InterceptableMessage,
     InterceptionPipeline,
 };
 use async_trait::async_trait;
 use domain::entities::rule::{BreakPhase, RewriteRule, RuleSet};
-use domain::entities::{RequestFacts, ResponseFacts, RewriteTarget};
+use domain::entities::{ResponseFacts, RewriteTarget};
 use domain::value_objects::Host;
 use domain::value_objects::InterceptId;
 
@@ -48,14 +49,11 @@ impl RewriteInterceptionPipeline {
                 None => return Vec::new(),
             },
         };
-        let Some((host, path)) = request.uri.as_deref().and_then(host_and_path) else {
+        let rules = self.rules.read().expect("rules lock");
+        let Some(target) = RequestTarget::of_message(request, rules.uses_graphql()) else {
             return Vec::new();
         };
-        let facts = RequestFacts {
-            host: &host,
-            path: &path,
-            method: request.method.as_deref().unwrap_or_default(),
-        };
+        let facts = target.facts();
         let content_type = header_value(&context.message, "content-type");
         let response = match context.phase {
             BreakPhase::Request => None,
@@ -64,7 +62,6 @@ impl RewriteInterceptionPipeline {
                 content_type: content_type.as_deref(),
             }),
         };
-        let rules = self.rules.read().expect("rules lock");
         rules
             .rewrites_for(&facts, response)
             .into_iter()
@@ -119,16 +116,6 @@ fn header_value(message: &InterceptableMessage, name: &str) -> Option<String> {
         .iter()
         .find(|h| h.name.eq_ignore_ascii_case(name))
         .map(|h| h.value.clone())
-}
-
-/// Хост и path+query absolute-URI.
-fn host_and_path(uri: &str) -> Option<(String, String)> {
-    let url = url::Url::parse(uri).ok()?;
-    let path = match url.query() {
-        Some(query) => format!("{}?{query}", url.path()),
-        None => url.path().to_string(),
-    };
-    Some((url.host_str().unwrap_or_default().to_string(), path))
 }
 
 #[async_trait]

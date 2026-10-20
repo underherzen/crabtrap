@@ -333,6 +333,107 @@ async fn map_local_adds_rule_headers_only_when_file_is_served() {
     cmd_tx.send(EngineCommand::Stop).await.ok();
 }
 
+/// Сырой ответ прокси на POST с JSON-телом.
+async fn raw_post(engine: &str, origin: &std::net::SocketAddr, path: &str, body: &str) -> String {
+    let mut client = TcpStream::connect(engine).await.expect("connect");
+    let req = format!(
+        "POST http://{origin}{path} HTTP/1.1\r\nHost: {origin}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    client.write_all(req.as_bytes()).await.expect("write");
+    let mut raw = Vec::new();
+    client.read_to_end(&mut raw).await.expect("read");
+    String::from_utf8_lossy(&raw).to_lowercase()
+}
+
+fn block_rule(r#match: TrafficMatch) -> BlockRule {
+    BlockRule {
+        id: RuleId::new(),
+        r#match,
+        action: BlockAction::Status(403),
+        enabled: true,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn graphql_operation_rule_blocks_only_that_operation() {
+    let (origin, hosts) = spawn_named_origin("origin").await;
+    let rules = RuleSet {
+        blocks: vec![block_rule(TrafficMatch {
+            path_glob: Some("/graphql".into()),
+            graphql_operation: Some("Delete*".into()),
+            ..Default::default()
+        })],
+        ..Default::default()
+    };
+    let (engine, _events, cmd_tx) = engine_with_rules(rules).await;
+
+    let delete = raw_post(
+        &engine,
+        &origin,
+        "/graphql",
+        r#"{"operationName":"DeleteUser","query":"mutation DeleteUser { x }"}"#,
+    )
+    .await;
+    assert!(delete.starts_with("http/1.1 403"), "{delete}");
+    assert!(
+        hosts.lock().expect("lock").is_empty(),
+        "blocked before origin"
+    );
+
+    let get = raw_post(
+        &engine,
+        &origin,
+        "/graphql",
+        r#"{"query":"query GetUser { me }"}"#,
+    )
+    .await;
+    assert!(get.starts_with("http/1.1 200"), "{get}");
+    assert!(
+        get.ends_with("from origin"),
+        "body reaches origin intact: {get}"
+    );
+    cmd_tx.send(EngineCommand::Stop).await.ok();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ignore_query_and_url_regex_rules_match_on_the_wire() {
+    let (origin, _hosts) = spawn_named_origin("origin").await;
+    let rules = RuleSet {
+        blocks: vec![
+            block_rule(TrafficMatch {
+                path_glob: Some("/users".into()),
+                ignore_query: true,
+                ..Default::default()
+            }),
+            block_rule(TrafficMatch {
+                url_regex: Some(r"http://127\.0\.0\.1:\d+/v[12]/items".into()),
+                ..Default::default()
+            }),
+        ],
+        ..Default::default()
+    };
+    let (engine, _events, cmd_tx) = engine_with_rules(rules).await;
+
+    for (path, blocked) in [
+        ("/users?page=2", true),
+        ("/users", true),
+        ("/users/1", false),
+        ("/v2/items", true),
+        ("/v3/items", false),
+        ("/v1/items/7", false),
+    ] {
+        let text = raw_get(&engine, &origin, path).await;
+        let code = if blocked {
+            "http/1.1 403"
+        } else {
+            "http/1.1 200"
+        };
+        assert!(text.starts_with(code), "{path}: {text}");
+    }
+    cmd_tx.send(EngineCommand::Stop).await.ok();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn map_remote_sends_request_to_other_origin() {
     let (source, source_hosts) = spawn_named_origin("source").await;

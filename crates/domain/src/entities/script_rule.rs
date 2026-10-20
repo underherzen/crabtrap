@@ -75,12 +75,7 @@ impl RuleSet {
         self.scripts
             .iter()
             .filter(|rule| rule.enabled)
-            .find(|rule| {
-                rule.r#match.body_regex.is_none()
-                    && rule
-                        .r#match
-                        .matches(facts.host, facts.path, facts.method, None, None)
-            })
+            .find(|rule| super::rule_routing::matches_request(&rule.r#match, facts))
     }
 
     /// Включённый скрипт по id (правило могли выключить или удалить).
@@ -117,6 +112,7 @@ mod tests {
             host,
             path: "/",
             method: "GET",
+            ..Default::default()
         }
     }
 

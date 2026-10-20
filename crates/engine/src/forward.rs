@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use application::dto::rules::ThrottleSpecDto;
+use application::matching::RequestTarget;
 use application::use_cases::rules::response_form::map_local_header_error;
 
 use application::dto::capture::{Direction, ExchangeSummaryDto, ProxyEvent, TlsInfoDto};
@@ -344,12 +345,10 @@ impl ProxyService {
         method: &http::Method,
     ) -> Option<ThrottleSpecDto> {
         let spec = self.state.throttle.read().await.clone()?;
-        let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
-        let host = uri.host().unwrap_or_default();
-        let applies = spec
-            .r#match
-            .as_ref()
-            .is_none_or(|m| m.matches(host, path, method.as_str(), None, None));
+        let applies = spec.r#match.as_ref().is_none_or(|m| {
+            RequestTarget::parse(&uri.to_string(), method.as_str())
+                .is_some_and(|target| m.matches(&target.facts().target()))
+        });
         applies.then_some(spec)
     }
 

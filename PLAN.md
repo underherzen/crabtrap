@@ -448,10 +448,19 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
   - [x] таблица MIME: avif, mp4, webm, mp3, ttf/otf/woff, csv, yaml, map, md
   - [x] документация: `docs/guide.md` (все Tools), ссылка в README, Help → User Guide
   - [ ] ручная проверка диалога и пункта меню в GUI — не делалась агентом
-- [ ] **P2. Матчинг** (~2 дня): `url_regex` (якорный, по полному URL, кэш компиляции, заодно кэш
-      `body_regex`); `ignore_query` (path_glob только по пути; в UI по умолчанию вкл.);
-      `graphql_operation` (`operationName` из JSON-тела/query, тело — только по требованию);
-      UI Wildcard/Regex, «Ignore query», «Test rule»
+- [x] **P2. Матчинг** (2026-10-20)
+  - [x] домен: `MatchTarget` (URL/хост/path/метод/статус/тип/GraphQL) вместо позиционных аргументов;
+        `TrafficMatch.url_regex` (якорный, кэш компиляции `regex_cache`, общий с Rewrite и `body_regex`),
+        `ignore_query`, `graphql_operation` (glob); `RuleSet::graphql_body_needed`
+  - [x] `application::matching::RequestTarget` — единый разбор запроса для всех пайплайнов, throttle
+        и Test скрипта; имя операции из `operationName`/документа (query или JSON-тело, пакет — первая)
+  - [x] тело ради GraphQL грузится только когда правило ждёт операцию (`wants_body` правил)
+  - [x] валидация: regex компилируется, ≤ 2048 символов; GraphQL не пустой; throttle без GraphQL;
+        условие из одних флагов — пустое
+  - [x] UI: общий компонент `MatchFields` (Wildcard/Regex, Ignore query, Method, GraphQL op,
+        превью, Test URL) в диалогах Tools, Rewrite и Script Editor; таблица правил показывает regex/GraphQL
+  - [x] документация: раздел Matching rules в `docs/guide.md`
+  - [ ] ручная проверка диалогов в GUI — не делалась агентом
 - [ ] **P3. Экспорт** (~2,5 дня, часть Phase 8): Copy as cURL; Export HAR 1.2 (выделенное/всё,
       опция «без тел»); Import HAR — вместе с сессиями
 - [ ] **P4. Allow List** (~1,5 дня): `allow_list` + `allow_enabled`; несовпавшее — в обход без записи

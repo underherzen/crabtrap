@@ -18,6 +18,7 @@ use application::dto::rules::InterceptResolutionDto;
 use application::dto::scripting::{
     ScriptCall, ScriptLogDto, ScriptOutput, ScriptRequestDto, ScriptResponseDto, ScriptSourceDto,
 };
+use application::matching::RequestTarget;
 use application::services::{
     BodyDecoderService, ConnectDecision, EventPublisher, InterceptContext, InterceptOutcome,
     InterceptableMessage, InterceptionPipeline, RouteDecision, ScriptRuntime,
@@ -27,7 +28,6 @@ use domain::value_objects::InterceptId;
 
 use super::message_body::{MessageBodies, finish_body};
 use chrono::Utc;
-use domain::entities::RequestFacts;
 use domain::entities::rule::{BreakPhase, RuleSet};
 use domain::entities::script_rule::{ScriptPhase, ScriptRule};
 use domain::value_objects::{ExchangeId, Host, RuleId};
@@ -81,18 +81,9 @@ impl ScriptingInterceptionPipeline {
 
     /// Первый совпавший с запросом скрипт (без учёта фазы).
     fn matching(&self, request: &InterceptableMessage) -> Option<ScriptRule> {
-        let url = url::Url::parse(request.uri.as_deref()?).ok()?;
-        let path = match url.query() {
-            Some(query) => format!("{}?{query}", url.path()),
-            None => url.path().to_string(),
-        };
-        let facts = RequestFacts {
-            host: url.host_str().unwrap_or_default(),
-            path: &path,
-            method: request.method.as_deref().unwrap_or_default(),
-        };
         let rules = self.rules.read().expect("rules lock");
-        rules.matching_script(&facts).cloned()
+        let target = RequestTarget::of_message(request, rules.uses_graphql())?;
+        rules.matching_script(&target.facts()).cloned()
     }
 
     /// Скрипт фазы ответа: выбранный на запросе (если ещё включён), Mock

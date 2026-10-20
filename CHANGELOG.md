@@ -12,6 +12,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `~/Library/Application Support/crabtrap/map_local/` and opens a prefilled Map Local rule.
 - Map Local recognises more file types: avif, mp4, webm, mp3, ttf, otf, woff, csv, yaml, md, source maps.
 - [User Guide](docs/guide.md) for all tools, linked from **Help → User Guide**.
+- Rule matching: **Regex** mode over the full URL, **Ignore query string** (on for new rules),
+  and **GraphQL operation** conditions for Map Local, Map Remote, Block, Breakpoints, Rewrite and
+  Scripting. Every rule dialog has a live **Test URL** check.
 
 ## [0.1.0] - 2026-10-18
 

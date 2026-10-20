@@ -6,7 +6,6 @@
 //! пишется в rules.json и в движок через общий [`RulesStore`].
 
 use application::dto::scripting::ScriptLogLevel;
-use application::use_cases::rules::location_form::{LocationErrors, LocationForm, METHODS};
 use application::use_cases::rules::script_edit::{ScriptDraft, upsert_script};
 use domain::value_objects::RuleId;
 use gpui_kit::component::ActiveTheme as _;
@@ -15,9 +14,8 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Editor, EditorState, Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Hsla, InteractiveElement as _,
+    AnyElement, App, AppContext as _, Context, Entity, FocusHandle, InteractiveElement as _,
     IntoElement, ParentElement, Render, Styled, Subscription, Window, div, px,
 };
 
@@ -32,6 +30,7 @@ use super::console::{ConsoleLine, ScriptConsoleStore};
 use crate::ui::async_bridge::spawn_ui_task;
 use crate::ui::inspector::kv::copy_text;
 use crate::ui::prefs;
+use crate::ui::rules::match_fields::{MatchFields, MatchFieldsKind, row};
 use crate::ui::rules::store::RulesStore;
 use crate::ui::theme::{ToneName, glass};
 use crate::ui::window_shell;
@@ -42,7 +41,6 @@ gpui_kit::actions!(script_editor, [SaveScript]);
 
 /// Контекст клавиш окна (⌘S — только здесь).
 pub const KEY_CONTEXT: &str = "ScriptEditor";
-const LABEL_WIDTH: f32 = 64.;
 /// Пределы ширины консоли при перетаскивании разделителя, px.
 const CONSOLE_MIN_WIDTH: f32 = 200.;
 const CONSOLE_MAX_WIDTH: f32 = 1400.;
@@ -73,9 +71,8 @@ pub struct ScriptEditor {
     /// Последнее сохранённое состояние (`None` — ещё не сохранялся).
     saved: Option<ScriptDraft>,
     name: Entity<InputState>,
-    host: Entity<InputState>,
-    path: Entity<InputState>,
-    method: Option<String>,
+    /// Matching Rule: Host / Path / Regex / Method / GraphQL / Test URL.
+    location: Entity<MatchFields>,
     run_on_request: bool,
     run_on_response: bool,
     mock_api: bool,
@@ -85,7 +82,6 @@ pub struct ScriptEditor {
     /// Новые записи пришли, пока пользователь выделял текст: обновить,
     /// когда выделение снято (иначе оно пропадало бы на каждой записи).
     console_stale: bool,
-    location_errors: LocationErrors,
     save_error: Option<String>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -112,11 +108,6 @@ impl ScriptEditor {
             })
         };
         let name = input("Script name", &draft.name);
-        let host = input(
-            "api.example.com  or  *.example.com  (paste a URL to split it)",
-            &draft.location.host,
-        );
-        let path = input("/api/*   (empty — any path)", &draft.location.path);
         let code = cx.new(|cx| {
             let mut state = EditorState::new(window, cx)
                 .language("javascript")
@@ -134,10 +125,12 @@ impl ScriptEditor {
             state
         });
         // Статус «Unsaved changes» и превью Matches — на каждый ввод.
-        let mut subscriptions: Vec<Subscription> = [&name, &host, &path]
-            .into_iter()
-            .map(|input| cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify()))
-            .collect();
+        let location =
+            cx.new(|cx| MatchFields::new(MatchFieldsKind::Full, &draft.location, window, cx));
+        let mut subscriptions = vec![
+            cx.subscribe(&name, |_, _, _: &InputEvent, cx| cx.notify()),
+            cx.observe(&location, |_, _, cx| cx.notify()),
+        ];
         subscriptions.push(cx.subscribe(&code, |_, _, _: &InputEvent, cx| cx.notify()));
         subscriptions.push(cx.observe_in(&console, window, |editor, _, window, cx| {
             editor.sync_console(window, cx)
@@ -150,16 +143,13 @@ impl ScriptEditor {
             rule_id,
             saved,
             name,
-            host,
-            path,
-            method: draft.location.method,
+            location,
             run_on_request: draft.run_on_request,
             run_on_response: draft.run_on_response,
             mock_api: draft.mock_api,
             code,
             console_view,
             console_stale: false,
-            location_errors: LocationErrors::default(),
             save_error: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -173,11 +163,7 @@ impl ScriptEditor {
     fn draft(&self, cx: &App) -> ScriptDraft {
         ScriptDraft {
             name: self.name.read(cx).value().to_string(),
-            location: LocationForm {
-                host: self.host.read(cx).value().to_string(),
-                path: self.path.read(cx).value().to_string(),
-                method: self.method.clone(),
-            },
+            location: self.location.read(cx).form(cx),
             run_on_request: self.run_on_request,
             run_on_response: self.run_on_response,
             mock_api: self.mock_api,
@@ -189,10 +175,8 @@ impl ScriptEditor {
     /// вставить с назначенным id), горячая перезагрузка движка — в store.
     fn save(&mut self, _: &SaveScript, _: &mut Window, cx: &mut Context<Self>) {
         let draft = self.draft(cx);
-        self.location_errors = draft.location.validate();
         self.save_error = None;
-        cx.notify();
-        if !self.location_errors.is_empty() {
+        if !self.location_valid(&draft, cx) {
             return;
         }
         let id = self.rule_id;
@@ -214,6 +198,16 @@ impl ScriptEditor {
         );
     }
 
+    /// Показать ошибки условия под полями; `true` — условие в порядке.
+    fn location_valid(&mut self, draft: &ScriptDraft, cx: &mut Context<Self>) -> bool {
+        let errors = draft.location.to_match().err().unwrap_or_default();
+        let valid = errors.is_empty();
+        self.location
+            .update(cx, |fields, cx| fields.set_errors(errors, cx));
+        cx.notify();
+        valid
+    }
+
     /// Вставить сниппет в место курсора.
     fn insert_snippet(&mut self, code: &'static str, window: &mut Window, cx: &mut Context<Self>) {
         self.code
@@ -225,9 +219,7 @@ impl ScriptEditor {
     /// итог и вывод скрипта в консоль.
     fn run_test(&mut self, cx: &mut Context<Self>) {
         let draft = self.draft(cx);
-        self.location_errors = draft.location.validate();
-        cx.notify();
-        if !self.location_errors.is_empty() {
+        if !self.location_valid(&draft, cx) {
             return;
         }
         let (test, rule) = (self.tools.test.clone(), self.rule_id);
@@ -357,56 +349,17 @@ impl ScriptEditor {
 
     fn matching_rule(&self, cx: &mut Context<Self>) -> AnyElement {
         let danger = cx.theme().danger;
-        let muted = cx.theme().muted_foreground;
-        let weak = cx.entity().downgrade();
-        let method_label = format!("{} ▾", self.method.as_deref().unwrap_or("Any method"));
-        let method = Button::new("script-method")
-            .label(method_label)
-            .dropdown_menu(move |menu, _, _| {
-                let choices =
-                    std::iter::once(None).chain(METHODS.iter().map(|m| Some(m.to_string())));
-                choices.fold(menu, |menu, choice| {
-                    let weak = weak.clone();
-                    let label = choice.clone().unwrap_or_else(|| "Any method".into());
-                    menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                        let _ = weak.update(cx, |editor, cx| {
-                            editor.method = choice.clone();
-                            cx.notify();
-                        });
-                    }))
-                })
-            });
-        let preview = self.draft(cx).location.preview();
         div()
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(field(
+            .child(row(
                 "Name",
                 Input::new(&self.name).into_any_element(),
                 None,
                 danger,
             ))
-            .child(field(
-                "Host",
-                Input::new(&self.host).into_any_element(),
-                self.location_errors.host.clone(),
-                danger,
-            ))
-            .child(field(
-                "Path",
-                Input::new(&self.path).into_any_element(),
-                self.location_errors.path.clone(),
-                danger,
-            ))
-            .child(field("Method", method.into_any_element(), None, danger))
-            .child(
-                div()
-                    .pl(px(LABEL_WIDTH + 8.))
-                    .text_size(px(12.))
-                    .text_color(muted)
-                    .child(format!("Matches: {preview}")),
-            )
+            .child(self.location.clone())
             .into_any_element()
     }
 
@@ -577,34 +530,6 @@ impl ScriptEditor {
             )
             .into_any_element()
     }
-}
-
-/// Подпись слева, поле и ошибка под ним.
-fn field(label: &str, input: AnyElement, error: Option<String>, danger: Hsla) -> AnyElement {
-    div()
-        .flex()
-        .items_start()
-        .gap(px(8.))
-        .child(
-            div()
-                .w(px(LABEL_WIDTH))
-                .flex_none()
-                .pt(px(6.))
-                .text_size(px(13.))
-                .child(label.to_string()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(input)
-                .when_some(error, |el, err| {
-                    el.child(div().text_size(px(12.)).text_color(danger).child(err))
-                }),
-        )
-        .into_any_element()
 }
 
 impl Render for ScriptEditor {

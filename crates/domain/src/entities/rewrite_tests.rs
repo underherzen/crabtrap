@@ -24,6 +24,7 @@ fn facts(host: &str) -> RequestFacts<'_> {
         host,
         path: "/",
         method: "GET",
+        ..Default::default()
     }
 }
 

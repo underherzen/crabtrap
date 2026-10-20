@@ -13,13 +13,13 @@ use application::dto::capture::ProxyEvent;
 use application::dto::rules::{
     InterceptPreviewDto, InterceptResolutionDto, InterceptableMessageDto,
 };
+use application::matching::RequestTarget;
 use application::services::{
     AbortMode, BodyDecoderService, ConnectDecision, EventPublisher, InterceptContext,
     InterceptOutcome, InterceptableMessage, InterceptionPipeline,
 };
 use async_trait::async_trait;
 use chrono::Utc;
-use domain::entities::RequestFacts;
 use domain::entities::rule::{BreakPhase, BreakpointRule, RuleSet};
 use domain::value_objects::{Host, InterceptId};
 use futures::channel::oneshot;
@@ -91,18 +91,9 @@ impl BreakpointInterceptionPipeline {
                 (context.request.as_ref()?, BreakPhase::Response)
             }
         };
-        let url = url::Url::parse(request.uri.as_deref()?).ok()?;
-        let path = match url.query() {
-            Some(query) => format!("{}?{query}", url.path()),
-            None => url.path().to_string(),
-        };
-        let facts = RequestFacts {
-            host: url.host_str().unwrap_or_default(),
-            path: &path,
-            method: request.method.as_deref().unwrap_or_default(),
-        };
         let rules = self.rules.read().expect("rules lock");
-        rules.breakpoint_for(&facts, phase).cloned()
+        let target = RequestTarget::of_message(request, rules.uses_graphql())?;
+        rules.breakpoint_for(&target.facts(), phase).cloned()
     }
 
     /// Припарковать сообщение и дождаться решения.

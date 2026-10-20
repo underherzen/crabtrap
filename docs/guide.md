@@ -28,25 +28,64 @@ Rules only see traffic crabtrap can read: plain HTTP, and HTTPS for hosts with
 
 ## Matching rules
 
-Every rule has a **Host**, a **Path** and a **Method**:
+Every rule has a condition: which requests it applies to. The **Match** switch picks one of two
+modes.
+
+**Wildcard** (default)
 
 | Field  | Syntax | Example |
 |--------|--------|---------|
-| Host   | wildcard: `*` matches any run of characters, `?` matches one character | `api.example.com`, `*.example.com` |
-| Path   | wildcard over the path **and the query string** | `/api/v1/*` |
-| Method | exact, or *Any method* | `POST` |
+| Host   | `*` matches any run of characters, `?` matches one character | `api.example.com`, `*.example.com` |
+| Path   | the same wildcards | `/api/v1/*` |
+| Ignore query string | on: Path is compared without `?…`; off: the query is part of the path | — |
 
-- Matching is case-insensitive.
-- Port and scheme are not part of the match.
+- **Ignore query string** is on for new rules, so `/api/users` also matches `/api/users?page=2`.
+  Turn it off to match exact queries, for example `/search?q=*`.
+- Rules created before this option existed keep comparing path and query together. With the
+  option off, `/api/users` does **not** match `/api/users?page=2`; use `/api/users*` instead.
 - An empty Path matches any path.
 - You can paste a full URL into the Host field and it is split into host and path.
+- Port and scheme are not part of a wildcard match.
 
-> [!IMPORTANT]
-> The Path pattern has to match the whole path **including the query string**. Because of that,
-> `/api/users` does **not** match `/api/users?page=2`. Use `/api/users*` instead. Rules created
-> from a right-click in the traffic table add the trailing `*` for you.
+**Regex (full URL)**
 
-The dialog shows a live **Matches:** preview of the final pattern.
+One regular expression over the whole URL, including scheme, port and query, for example
+`https://api\.example\.com/v[12]/users(\?.*)?`.
+- The regex must match the **entire** URL. A partial match counts as no match, as in Proxyman.
+- The regex is checked against the **normalized** URL, which can differ from what you typed:
+  - the host is lowercased;
+  - default ports are dropped (`:443` for https, `:80` for http);
+  - an empty path becomes `/`;
+  - IPv6 hosts keep their brackets (`[::1]`).
+
+  For example, `https://api\.example\.com` never matches, because the URL is
+  `https://api.example.com/`. Write `https://api\.example\.com/.*` instead. **Test URL** shows
+  the normalized form ("checked as …") whenever it differs from your input.
+- Regex mode uses [Rust regex syntax](https://docs.rs/regex/latest/regex/#syntax).
+
+**In both modes**
+
+| Field | Meaning |
+|-------|---------|
+| Method | exact, or *Any method* |
+| GraphQL op | Name of the GraphQL operation. Wildcards are allowed: `GetUser`, `Get*`. Empty means any. |
+
+How GraphQL operations are detected:
+- The name comes from `operationName` in the JSON body or the query string. Otherwise it is taken
+  from the document (`query GetUser { … }`).
+- In a batch, the first operation counts. Anonymous operations have no name and never match.
+- Only JSON bodies (up to 1 MiB) and the `?operationName=` / `?query=` parameters are recognized.
+  Compressed request bodies, `application/graphql` bodies, multipart uploads and persisted
+  queries (hash only) give no name, so such requests don't match a GraphQL condition.
+- crabtrap starts loading request bodies for this only while an enabled rule has a GraphQL
+  condition. Scripts, Rewrite body edits and Breakpoints load bodies anyway.
+- Throttle does not support GraphQL conditions.
+
+Matching is case-insensitive. A rule saved in `rules.json` with `"case_sensitive": true` makes
+wildcards, the regex and the method case-sensitive.
+
+The dialog shows a live **Matches:** preview. **Test URL** checks any URL against the rule as you
+type. The GraphQL operation is not part of that check, because it lives in the request body.
 
 Within one tool, the first enabled matching rule wins. The exception is Rewrite, where every
 matching rule applies, in list order.
@@ -72,7 +111,8 @@ Answers matching requests with a file from your Mac. The request never reaches t
 
 **Create a rule**
 - **Tools → Map Local → +**, or
-- right-click a request → **Map Local…** (host, path and method are filled in), or
+- right-click a request → **Map Local…** (host, path without the query, and method are filled
+  in), or
 - right-click a request → **Save Response & Map Local…**. This saves the response body to
   `~/Library/Application Support/crabtrap/map_local/<host>/<path>`, already decompressed. It then
   opens the Map Local dialog with that file, the response status, its Content-Type and its

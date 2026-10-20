@@ -53,13 +53,28 @@ pub fn parse_location(input: &str) -> Result<TrafficMatch, DomainError> {
 
 /// Location для отображения в списке правил.
 pub fn format_location(m: &TrafficMatch) -> String {
-    let host = m.host_glob.as_deref().unwrap_or("*");
-    let path = m.path_glob.as_deref().unwrap_or("/*");
-    let mut text = format!("{host}{path}");
-    if let Some(method) = &m.method {
-        text = format!("{method} {text}");
-    }
-    text
+    let location = match &m.url_regex {
+        Some(regex) => format!("URL ~ {regex}"),
+        None => {
+            let host = m.host_glob.as_deref().unwrap_or("*");
+            let path = m.path_glob.as_deref().unwrap_or("/*");
+            let query = match m.ignore_query && !path.ends_with('*') {
+                true => " (any query)",
+                false => "",
+            };
+            format!("{host}{path}{query}")
+        }
+    };
+    let method = m.method.as_ref().map(|method| format!("{method} "));
+    let graphql = m
+        .graphql_operation
+        .as_ref()
+        .map(|op| format!(" · GraphQL {op}"));
+    format!(
+        "{}{location}{}",
+        method.unwrap_or_default(),
+        graphql.unwrap_or_default()
+    )
 }
 
 /// Вставить новое правило (`id = None`) в конец или заменить существующее
@@ -720,6 +735,27 @@ mod tests {
         assert!(parse_location("").is_err());
         assert!(parse_location("https:///path").is_err());
         assert!(parse_location("bad host/x").is_err());
+    }
+
+    #[test]
+    fn formats_regex_query_and_graphql_conditions() {
+        let regex = TrafficMatch {
+            url_regex: Some(r"https://api\.com/.*".into()),
+            method: Some("POST".into()),
+            ..TrafficMatch::default()
+        };
+        assert_eq!(format_location(&regex), r"POST URL ~ https://api\.com/.*");
+        let graphql = TrafficMatch {
+            host_glob: Some("api.com".into()),
+            path_glob: Some("/graphql".into()),
+            ignore_query: true,
+            graphql_operation: Some("GetUser".into()),
+            ..TrafficMatch::default()
+        };
+        assert_eq!(
+            format_location(&graphql),
+            "api.com/graphql (any query) · GraphQL GetUser"
+        );
     }
 
     #[test]

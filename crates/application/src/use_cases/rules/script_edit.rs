@@ -82,12 +82,7 @@ pub fn upsert_script(
     draft: ScriptDraft,
 ) -> Result<(RuleSet, RuleId), DomainError> {
     let location = draft.location.to_match().map_err(|errors| {
-        let message = [errors.host, errors.path]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join("; ");
-        DomainError::ValidationError(format!("script location: {message}"))
+        DomainError::ValidationError(format!("script location: {}", errors.summary()))
     })?;
     let new_id = id.unwrap_or_default();
     let scripts = upsert(
@@ -120,6 +115,7 @@ mod tests {
                 host: "api.example.com".into(),
                 path: "/v1/*".into(),
                 method: Some("POST".into()),
+                ..LocationForm::default()
             },
             run_on_request: true,
             run_on_response: false,

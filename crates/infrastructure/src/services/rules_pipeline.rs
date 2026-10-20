@@ -9,13 +9,15 @@
 use std::path::PathBuf;
 use std::sync::RwLock;
 
+use application::matching::RequestTarget;
 use application::services::{
     AbortMode, ConnectDecision, InterceptContext, InterceptOutcome, InterceptionPipeline,
     RouteDecision,
 };
 use async_trait::async_trait;
+use domain::entities::RequestRoute;
+use domain::entities::rule::BreakPhase;
 use domain::entities::rule::{BlockAction, MapRemoteRule, RuleSet};
-use domain::entities::{RequestFacts, RequestRoute};
 use domain::value_objects::Host;
 
 /// Файл, который отдаётся для запроса каталога (`/` на конце).
@@ -48,11 +50,23 @@ impl InterceptionPipeline for RulesInterceptionPipeline {
         }
     }
 
+    /// Самый внутренний пайплайн цепочки — здесь решается, нужно ли тело
+    /// запроса ради имени GraphQL-операции (правилу любого инструмента).
+    fn wants_body(&self, context: &InterceptContext) -> bool {
+        context.phase == BreakPhase::Request
+            && RequestTarget::of_message(&context.message, false).is_some_and(|target| {
+                self.rules
+                    .read()
+                    .expect("rules lock")
+                    .graphql_body_needed(&target.facts())
+            })
+    }
+
     async fn on_request(&self, context: InterceptContext) -> InterceptOutcome {
-        let method = context.message.method.as_deref().unwrap_or_default();
-        let route = match context.message.uri.as_deref().map(url::Url::parse) {
-            Some(Ok(url)) => request_route(&self.snapshot(), &url, method),
-            _ => Ok(RouteDecision::Origin),
+        let rules = self.snapshot();
+        let route = match RequestTarget::of_message(&context.message, rules.uses_graphql()) {
+            Some(target) => request_route(&rules, &target),
+            None => Ok(RouteDecision::Origin),
         };
         match route {
             Ok(route) => InterceptOutcome::Proceed {
@@ -80,21 +94,8 @@ impl InterceptionPipeline for RulesInterceptionPipeline {
 }
 
 /// Маршрут запроса; `Err` — оборвать соединение (Block с действием Close).
-fn request_route(
-    rules: &RuleSet,
-    url: &url::Url,
-    method: &str,
-) -> Result<RouteDecision, AbortMode> {
-    let path_and_query = match url.query() {
-        Some(q) => format!("{}?{q}", url.path()),
-        None => url.path().to_string(),
-    };
-    let facts = RequestFacts {
-        host: url.host_str().unwrap_or_default(),
-        path: &path_and_query,
-        method,
-    };
-    decide(rules.route_request(&facts), url)
+fn request_route(rules: &RuleSet, target: &RequestTarget) -> Result<RouteDecision, AbortMode> {
+    decide(rules.route_request(&target.facts()), target.url())
 }
 
 /// Относительный путь файла для правила-каталога Map Local: path запроса

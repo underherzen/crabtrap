@@ -11,4 +11,4 @@ pub mod script_edit;
 mod update_rule_set;
 
 pub use get_rule_set::GetRuleSetUseCase;
-pub use update_rule_set::{MAX_SCRIPT_SOURCE_BYTES, UpdateRuleSetUseCase};
+pub use update_rule_set::{MAX_SCRIPT_SOURCE_BYTES, MAX_URL_REGEX_CHARS, UpdateRuleSetUseCase};

@@ -96,6 +96,7 @@ async fn test_run_uses_latest_matching_exchange() {
             host: "api.test".into(),
             path: "/items*".into(),
             method: None,
+            ..LocationForm::default()
         },
         run_on_request: true,
         run_on_response: true,

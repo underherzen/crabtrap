@@ -4,7 +4,7 @@
 use domain::entities::rule::{RewriteLocation, RewriteOp, RewriteRule};
 use domain::value_objects::TrafficMatch;
 
-use super::location_form::LocationForm;
+use super::location_form::{LocationErrors, LocationForm};
 
 /// Вид операции в выпадающем списке.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,8 +184,8 @@ pub struct RewriteForm {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RewriteErrors {
     pub form: Option<String>,
-    pub host: Option<String>,
-    pub path: Option<String>,
+    /// В коробке: ошибки полей условия крупные, а `Err` должен быть лёгким.
+    pub location: Box<LocationErrors>,
     pub ops: Vec<(usize, String)>,
 }
 
@@ -232,22 +232,12 @@ impl RewriteForm {
         } else if self.ops.is_empty() {
             errors.form = Some("Add at least one operation".into());
         }
-        let any_location =
-            self.matching.host.trim().is_empty() && self.matching.path.trim().is_empty();
-        let r#match = match any_location {
-            // Только метод — условие без хоста/пути.
-            true => self.matching.method.clone().map(|method| TrafficMatch {
-                method: Some(method),
-                ..TrafficMatch::default()
-            }),
-            false => match self.matching.to_match() {
-                Ok(m) => Some(m),
-                Err(e) => {
-                    errors.host = e.host;
-                    errors.path = e.path;
-                    None
-                }
-            },
+        let r#match = match self.matching.to_optional_match() {
+            Ok(m) => m,
+            Err(e) => {
+                errors.location = Box::new(e);
+                None
+            }
         };
         let mut ops = Vec::new();
         for (index, op) in self.ops.iter().enumerate() {
@@ -266,10 +256,7 @@ impl RewriteForm {
             true => Ok(RewriteParts {
                 name: self.name.trim().to_string(),
                 location: self.location,
-                r#match: r#match.map(|m| TrafficMatch {
-                    method: self.matching.method.clone(),
-                    ..m
-                }),
+                r#match,
                 ops,
             }),
             false => Err(errors),
@@ -298,6 +285,7 @@ mod tests {
                 host: "api.test".into(),
                 path: "/v1/*".into(),
                 method: None,
+                ..LocationForm::default()
             },
             ops,
         }

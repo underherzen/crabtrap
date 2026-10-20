@@ -8,5 +8,6 @@
 //! - Use case принимает зависимости явно через `new(Arc<dyn ...>)`.
 
 pub mod dto;
+pub mod matching;
 pub mod services;
 pub mod use_cases;

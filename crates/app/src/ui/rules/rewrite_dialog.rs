@@ -4,7 +4,7 @@
 //! `application::rules::rewrite_form`; ошибки — у своих полей и операций.
 
 use application::use_cases::rules::edit::upsert_rewrite;
-use application::use_cases::rules::location_form::{LocationForm, METHODS};
+use application::use_cases::rules::location_form::{LocationErrors, LocationForm};
 use application::use_cases::rules::rewrite_form::{OpForm, OpKind, RewriteErrors, RewriteForm};
 use domain::entities::rule::{RewriteLocation, RewriteRule};
 use domain::value_objects::RuleId;
@@ -22,9 +22,9 @@ use gpui_kit::{
     Styled, WeakEntity, Window, div, px,
 };
 
+use super::match_fields::{MatchFields, MatchFieldsKind, row};
 use super::store::RulesStore;
 
-const LABEL_WIDTH: f32 = 96.;
 const DIALOG_WIDTH: f32 = 720.;
 const FIRST_FIELD_WIDTH: f32 = 200.;
 
@@ -40,9 +40,8 @@ pub struct RewriteDialog {
     editing: Option<RuleId>,
     store: Entity<RulesStore>,
     name: Entity<InputState>,
-    host: Entity<InputState>,
-    path: Entity<InputState>,
-    method: Option<String>,
+    /// Условие (пустое — всё): Host / Path / Regex / Method / GraphQL.
+    matching: Entity<MatchFields>,
     location: RewriteLocation,
     ops: Vec<OpRow>,
     errors: RewriteErrors,
@@ -58,26 +57,16 @@ impl RewriteDialog {
         cx: &mut Context<Self>,
     ) -> Self {
         let name = text_input("e.g. Disable cache", &form.name, window, cx);
-        let host = text_input(
-            "api.example.com  (empty — all hosts)",
-            &form.matching.host,
-            window,
-            cx,
-        );
-        let path = text_input(
-            "/api/*   (empty — any path)",
-            &form.matching.path,
-            window,
-            cx,
-        );
+        let matching = cx.new(|cx| {
+            MatchFields::new(MatchFieldsKind::Full, &form.matching, window, cx)
+                .empty_matches_everything()
+        });
         let ops = form.ops.iter().map(|op| op_row(op, window, cx)).collect();
         Self {
             editing,
             store,
             name,
-            host,
-            path,
-            method: form.matching.method,
+            matching,
             location: form.location,
             ops,
             errors: RewriteErrors::default(),
@@ -90,11 +79,7 @@ impl RewriteDialog {
         RewriteForm {
             name: value(&self.name),
             location: self.location,
-            matching: LocationForm {
-                host: value(&self.host),
-                path: value(&self.path),
-                method: self.method.clone(),
-            },
+            matching: self.matching.read(cx).form(cx),
             ops: self
                 .ops
                 .iter()
@@ -138,11 +123,17 @@ impl RewriteDialog {
         let parts = match self.form(cx).validate() {
             Ok(parts) => parts,
             Err(errors) => {
+                let location = (*errors.location).clone();
+                self.matching
+                    .update(cx, |fields, cx| fields.set_errors(location, cx));
                 self.errors = errors;
                 cx.notify();
                 return;
             }
         };
+        self.matching.update(cx, |fields, cx| {
+            fields.set_errors(LocationErrors::default(), cx)
+        });
         self.errors = RewriteErrors::default();
         self.save_error = None;
         let id = self.editing;
@@ -278,59 +269,10 @@ fn op_row(op: &OpForm, window: &mut Window, cx: &mut App) -> OpRow {
     }
 }
 
-fn row(label: &str, field: AnyElement, error: Option<String>, danger: Hsla) -> AnyElement {
-    div()
-        .flex()
-        .items_start()
-        .gap(px(8.))
-        .child(
-            div()
-                .w(px(LABEL_WIDTH))
-                .flex_none()
-                .pt(px(6.))
-                .text_size(px(13.))
-                .child(label.to_string()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(field)
-                .when_some(error, |el, err| {
-                    el.child(div().text_size(px(12.)).text_color(danger).child(err))
-                }),
-        )
-        .into_any_element()
-}
-
 impl Render for RewriteDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (danger, muted) = (cx.theme().danger, cx.theme().muted_foreground);
+        let danger = cx.theme().danger;
         let weak = cx.entity().downgrade();
-        let method = Button::new("rewrite-method")
-            .label(format!(
-                "{} ▾",
-                self.method.as_deref().unwrap_or("Any method")
-            ))
-            .dropdown_menu({
-                let weak = weak.clone();
-                move |menu, _, _| {
-                    let choices =
-                        std::iter::once(None).chain(METHODS.iter().map(|m| Some(m.to_string())));
-                    choices.fold(menu, |menu, choice| {
-                        let weak = weak.clone();
-                        let label = choice.clone().unwrap_or_else(|| "Any method".into());
-                        menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                            let _ = weak.update(cx, |d, cx| {
-                                d.method = choice.clone();
-                                cx.notify();
-                            });
-                        }))
-                    })
-                }
-            });
         let location_radio = |id: &'static str, label: &'static str, value: RewriteLocation| {
             let weak = weak.clone();
             Radio::new(id)
@@ -358,12 +300,6 @@ impl Render for RewriteDialog {
                     })
                 }
             });
-        let preview = match self.form(cx).matching {
-            m if m.host.trim().is_empty() && m.path.trim().is_empty() => {
-                "Matches: everything".to_string()
-            }
-            m => format!("Matches: {}", m.preview()),
-        };
         div()
             .flex()
             .flex_col()
@@ -393,26 +329,7 @@ impl Render for RewriteDialog {
                 None,
                 danger,
             ))
-            .child(row(
-                "Host",
-                Input::new(&self.host).into_any_element(),
-                self.errors.host.clone(),
-                danger,
-            ))
-            .child(row(
-                "Path",
-                Input::new(&self.path).into_any_element(),
-                self.errors.path.clone(),
-                danger,
-            ))
-            .child(row("Method", method.into_any_element(), None, danger))
-            .child(
-                div()
-                    .pl(px(LABEL_WIDTH + 8.))
-                    .text_size(px(12.))
-                    .text_color(muted)
-                    .child(preview),
-            )
+            .child(self.matching.clone())
             .child(
                 div()
                     .pt(px(6.))

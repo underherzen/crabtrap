@@ -5,15 +5,34 @@
 //! внутри категории побеждает первое включённое совпавшее правило.
 
 use super::rule::{BlockRule, MapLocalRule, MapRemoteRule, RuleSet, ThrottleProfile};
-use crate::value_objects::TrafficMatch;
+use crate::value_objects::{MatchTarget, TrafficMatch};
 
 /// Что известно о запросе до похода в origin.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct RequestFacts<'a> {
+    /// Абсолютный URL (`https://api.test/v1?x=1`) — для `url_regex`.
+    pub url: &'a str,
     pub host: &'a str,
     /// Path + query (`/api/v1?x=1`).
     pub path: &'a str,
     pub method: &'a str,
+    /// Имя GraphQL-операции (`None` — не GraphQL или тело не загружено).
+    pub graphql_operation: Option<&'a str>,
+}
+
+impl<'a> RequestFacts<'a> {
+    /// Цель матча на фазе запроса (статуса и Content-Type ответа нет).
+    pub fn target(&self) -> MatchTarget<'a> {
+        MatchTarget {
+            url: self.url,
+            host: self.host,
+            path: self.path,
+            method: self.method,
+            status: None,
+            content_type: None,
+            graphql_operation: self.graphql_operation,
+        }
+    }
 }
 
 /// Правило, которое определяет судьбу запроса.
@@ -27,8 +46,17 @@ pub enum RequestRoute<'a> {
 
 /// Матч на фазе запроса: статуса, Content-Type ответа и тела ещё нет,
 /// поэтому правила с этими условиями запрос не ловят (а не ловят ВСЁ).
-fn matches_request(m: &TrafficMatch, facts: &RequestFacts<'_>) -> bool {
-    m.body_regex.is_none() && m.matches(facts.host, facts.path, facts.method, None, None)
+pub(crate) fn matches_request(m: &TrafficMatch, facts: &RequestFacts<'_>) -> bool {
+    m.body_regex.is_none() && m.matches(&facts.target())
+}
+
+/// Правилу с `graphql_operation` нужно тело запроса: URL/хост/path/метод
+/// совпали, а имя операции до загрузки тела неизвестно (статус и
+/// Content-Type ответа — тем более).
+fn awaits_graphql(m: &TrafficMatch, facts: &RequestFacts<'_>) -> bool {
+    m.graphql_operation.is_some()
+        && m.body_regex.is_none()
+        && m.matches_request_line(&facts.target())
 }
 
 impl RuleSet {
@@ -77,8 +105,45 @@ impl RuleSet {
                 && m.status_code.is_none()
                 && m.content_type.is_none()
                 && m.body_regex.is_none()
-                && m.matches(host, "/", "CONNECT", None, None)
+                && m.url_regex.is_none()
+                && m.graphql_operation.is_none()
+                && m.matches(&MatchTarget {
+                    host,
+                    path: "/",
+                    method: "CONNECT",
+                    ..MatchTarget::default()
+                })
         })
+    }
+
+    /// Загрузить тело запроса ради имени GraphQL-операции: какое-то
+    /// включённое правило (любого инструмента, любой фазы) ждёт его.
+    pub fn graphql_body_needed(&self, facts: &RequestFacts<'_>) -> bool {
+        self.any_enabled_match(|m| awaits_graphql(m, facts))
+    }
+
+    /// Есть ли включённое правило с GraphQL-операцией: только тогда
+    /// пайплайнам стоит разбирать тело запроса в поисках её имени.
+    pub fn uses_graphql(&self) -> bool {
+        self.any_enabled_match(|m| m.graphql_operation.is_some())
+    }
+
+    /// Условие хотя бы одного включённого правила (включённого инструмента
+    /// с условием на запрос) удовлетворяет `test`.
+    fn any_enabled_match(&self, test: impl Fn(&TrafficMatch) -> bool) -> bool {
+        let on = |enabled: bool, m: &TrafficMatch| enabled && test(m);
+        (self.blocks_enabled && self.blocks.iter().any(|r| on(r.enabled, &r.r#match)))
+            || (self.map_local_enabled && self.map_local.iter().any(|r| on(r.enabled, &r.r#match)))
+            || (self.map_remote_enabled
+                && self.map_remote.iter().any(|r| on(r.enabled, &r.r#match)))
+            || (self.breakpoints_enabled
+                && self.breakpoints.iter().any(|r| on(r.enabled, &r.r#match)))
+            || (self.scripts_enabled && self.scripts.iter().any(|r| on(r.enabled, &r.r#match)))
+            || (self.rewrite_enabled
+                && self
+                    .rewrite
+                    .iter()
+                    .any(|r| r.r#match.as_ref().is_some_and(|m| on(r.enabled, m))))
     }
 
     /// Профиль throttle, если он применяется к запросу (`match: None` —
@@ -113,7 +178,86 @@ mod tests {
             host,
             path,
             method: "GET",
+            ..RequestFacts::default()
         }
+    }
+
+    #[test]
+    fn graphql_rule_asks_for_the_body_only_when_the_rest_matches() {
+        let graphql = TrafficMatch {
+            host_glob: Some("api.test".into()),
+            graphql_operation: Some("GetUser".into()),
+            ..Default::default()
+        };
+        let rules = RuleSet {
+            blocks: vec![block(graphql.clone(), true)],
+            ..Default::default()
+        };
+        assert!(rules.graphql_body_needed(&facts("api.test", "/graphql")));
+        assert!(!rules.graphql_body_needed(&facts("other.test", "/graphql")));
+
+        assert!(rules.uses_graphql());
+        let disabled = RuleSet {
+            blocks: vec![block(graphql, false)],
+            ..Default::default()
+        };
+        assert!(!disabled.graphql_body_needed(&facts("api.test", "/graphql")));
+        assert!(!disabled.uses_graphql(), "disabled rules don't count");
+        let plain = RuleSet {
+            blocks: vec![block(host_match("api.test"), true)],
+            ..Default::default()
+        };
+        assert!(!plain.graphql_body_needed(&facts("api.test", "/graphql")));
+        assert!(!plain.uses_graphql());
+    }
+
+    #[test]
+    fn graphql_rule_with_response_conditions_still_asks_for_the_body() {
+        let rules = RuleSet {
+            breakpoints: vec![crate::entities::rule::BreakpointRule {
+                id: RuleId::new(),
+                r#match: TrafficMatch {
+                    graphql_operation: Some("GetUser".into()),
+                    status_code: Some(500),
+                    content_type: Some("application/json".into()),
+                    ..Default::default()
+                },
+                phase: crate::entities::rule::BreakPhase::Response,
+                enabled: true,
+            }],
+            ..Default::default()
+        };
+        assert!(
+            rules.graphql_body_needed(&facts("api.test", "/graphql")),
+            "status and Content-Type are unknown before the response"
+        );
+    }
+
+    #[test]
+    fn graphql_rule_routes_by_operation_name() {
+        let rules = RuleSet {
+            blocks: vec![block(
+                TrafficMatch {
+                    graphql_operation: Some("Delete*".into()),
+                    ..Default::default()
+                },
+                true,
+            )],
+            ..Default::default()
+        };
+        let with_op = |op| RequestFacts {
+            graphql_operation: op,
+            ..facts("api.test", "/graphql")
+        };
+        assert!(matches!(
+            rules.route_request(&with_op(Some("DeleteUser"))),
+            RequestRoute::Block(_)
+        ));
+        assert_eq!(
+            rules.route_request(&with_op(Some("GetUser"))),
+            RequestRoute::Origin
+        );
+        assert_eq!(rules.route_request(&with_op(None)), RequestRoute::Origin);
     }
 
     fn block(m: TrafficMatch, enabled: bool) -> BlockRule {

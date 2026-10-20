@@ -17,6 +17,7 @@ use crate::dto::scripting::{
     ScriptCall, ScriptLogDto, ScriptLogLevel, ScriptOutput, ScriptRequestDto, ScriptResponseDto,
     ScriptSourceDto,
 };
+use crate::matching::RequestTarget;
 use crate::services::{BodyDecoderService, ScriptRuntime};
 use crate::use_cases::rules::script_edit::ScriptDraft;
 
@@ -125,15 +126,11 @@ impl TestScriptUseCase {
             .await?;
         recent
             .into_iter()
+            // Имя GraphQL-операции без тела не известно — берём последний
+            // запрос, подходящий по остальному условию.
             .find(|exchange| {
-                let (host, path) = host_and_path(exchange);
-                location.matches(
-                    &host,
-                    &path,
-                    &exchange.request.method.to_string(),
-                    None,
-                    None,
-                )
+                RequestTarget::parse(&absolute_url(exchange), exchange.request.method.as_str())
+                    .is_some_and(|target| location.matches_except_graphql(&target.facts().target()))
             })
             .ok_or_else(|| {
                 DomainError::NotFound(
@@ -201,23 +198,6 @@ fn info(message: String) -> ScriptLogDto {
     ScriptLogDto {
         level: ScriptLogLevel::Info,
         message,
-    }
-}
-
-/// Хост и path+query обмена (URI захвачен absolute-form).
-fn host_and_path(exchange: &HttpExchange) -> (String, String) {
-    match url::Url::parse(&exchange.request.uri) {
-        Ok(url) => {
-            let path = match url.query() {
-                Some(query) => format!("{}?{query}", url.path()),
-                None => url.path().to_string(),
-            };
-            (url.host_str().unwrap_or_default().to_string(), path)
-        }
-        Err(_) => (
-            exchange.host.as_str().to_string(),
-            exchange.request.uri.clone(),
-        ),
     }
 }
 

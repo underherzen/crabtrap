@@ -136,14 +136,6 @@ impl ThrottleSpecDto {
             r#match: p.r#match.clone(),
         }
     }
-
-    /// Матчится ли обмен под спеку (без id — профиль команды).
-    pub fn matches_exchange(&self, exchange: &domain::entities::HttpExchange) -> bool {
-        match &self.r#match {
-            Some(m) => m.matches_exchange(exchange),
-            None => true,
-        }
-    }
 }
 
 /// Перехваченное сообщение (request ИЛИ response) для модалки брейкпоинта.

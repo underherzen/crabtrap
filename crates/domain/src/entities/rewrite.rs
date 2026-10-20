@@ -7,7 +7,9 @@
 
 use super::rule::{RewriteLocation, RewriteOp, RewriteRule, RuleSet};
 use super::rule_routing::RequestFacts;
+use crate::value_objects::MatchTarget;
 use crate::value_objects::http_vo::HeaderEntry;
+use crate::value_objects::regex_cache::compiled;
 
 /// Что правило может изменить. `url` — только у запроса, `status` — только
 /// у ответа; `body` — `None`, если тело не загружено (операции над телом
@@ -47,13 +49,11 @@ impl RewriteRule {
             None => (None, None),
         };
         m.body_regex.is_none()
-            && m.matches(
-                request.host,
-                request.path,
-                request.method,
+            && m.matches(&MatchTarget {
                 status,
                 content_type,
-            )
+                ..request.target()
+            })
     }
 
     /// Применить операции правила.
@@ -185,28 +185,6 @@ fn replace_text(text: &str, find: &str, replace: &str, regex: bool) -> String {
         Some(re) => re.replace_all(text, replace).into_owned(),
         None => text.to_string(),
     }
-}
-
-/// Скомпилированные шаблоны правил: компиляция — один раз на шаблон, а не
-/// на каждое сообщение (правил немного, кеш ограничен).
-fn compiled(pattern: &str) -> Option<regex::Regex> {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-    const CACHE_LIMIT: usize = 256;
-    static CACHE: OnceLock<Mutex<HashMap<String, Option<regex::Regex>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut cache = cache
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(found) = cache.get(pattern) {
-        return found.clone();
-    }
-    if cache.len() >= CACHE_LIMIT {
-        cache.clear();
-    }
-    let re = regex::Regex::new(pattern).ok();
-    cache.insert(pattern.to_string(), re.clone());
-    re
 }
 
 #[cfg(test)]

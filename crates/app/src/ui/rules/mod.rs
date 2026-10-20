@@ -10,6 +10,7 @@
 //! движка — в store.
 
 pub mod dialog;
+pub mod match_fields;
 mod rewrite_dialog;
 pub mod save_mock;
 pub mod store;

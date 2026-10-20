@@ -11,6 +11,7 @@ use domain::errors::DomainError;
 use domain::repositories::RuleRepository;
 use domain::value_objects::TrafficMatch;
 use domain::value_objects::http_vo::HeaderEntry;
+use domain::value_objects::regex_cache::whole_match_check;
 
 use super::response_form::{MAP_LOCAL_STATUS_RANGE, content_type_error, map_local_header_error};
 use crate::dto::rules::RuleSetDto;
@@ -32,11 +33,54 @@ impl UpdateRuleSetUseCase {
     }
 }
 
+/// Длина regex условия (URL, тело): правило — не программа, длинный шаблон —
+/// ошибка ввода.
+pub const MAX_URL_REGEX_CHARS: usize = 2048;
+
+/// Шаблоны условия любого инструмента: regex компилируются, имя
+/// GraphQL-операции не пустое.
+fn validate_match_patterns(m: &TrafficMatch, what: &str) -> Result<(), DomainError> {
+    let invalid = |message: String| Err(DomainError::ValidationError(format!("{what}: {message}")));
+    if let Some(pattern) = &m.url_regex {
+        if pattern.chars().count() > MAX_URL_REGEX_CHARS {
+            return invalid(format!(
+                "URL regex is longer than {MAX_URL_REGEX_CHARS} characters"
+            ));
+        }
+        if let Err(e) = whole_match_check(pattern, m.case_sensitive) {
+            return invalid(format!("invalid URL regex: {e}"));
+        }
+    }
+    if let Some(pattern) = &m.body_regex {
+        if pattern.chars().count() > MAX_URL_REGEX_CHARS {
+            return invalid(format!(
+                "body regex is longer than {MAX_URL_REGEX_CHARS} characters"
+            ));
+        }
+        if let Err(e) = regex::Regex::new(pattern) {
+            return invalid(format!("invalid body regex: {e}"));
+        }
+    }
+    if m.graphql_operation
+        .as_deref()
+        .is_some_and(|op| op.trim().is_empty())
+    {
+        return invalid("GraphQL operation name is empty".into());
+    }
+    Ok(())
+}
+
 /// Условие правила маршрутизации (Block / Map Local / Map Remote):
 /// обязательно (пустое ловило бы весь трафик) и без `body_regex` — на фазе
 /// запроса тела ещё нет, такое условие молча не работало бы.
 fn validate_routing_match(m: &TrafficMatch, what: &str) -> Result<(), DomainError> {
-    if *m == TrafficMatch::default() {
+    // Флаги (регистр, игнор query) сами ничего не отбирают.
+    let conditions = TrafficMatch {
+        ignore_query: false,
+        case_sensitive: false,
+        ..m.clone()
+    };
+    if conditions == TrafficMatch::default() {
         return Err(DomainError::ValidationError(format!(
             "{what}: match is required"
         )));
@@ -46,7 +90,7 @@ fn validate_routing_match(m: &TrafficMatch, what: &str) -> Result<(), DomainErro
             "{what}: body_regex is not supported for request routing"
         )));
     }
-    Ok(())
+    validate_match_patterns(m, what)
 }
 
 /// Цель Map Remote: абсолютный http(s)-URL с хостом.
@@ -124,6 +168,9 @@ fn validate(rules: &RuleSet) -> Result<(), DomainError> {
                 rule.id, rule.name
             )));
         }
+        if let Some(m) = &rule.r#match {
+            validate_match_patterns(m, &format!("rewrite rule {}", rule.id))?;
+        }
         for op in &rule.ops {
             validate_rewrite_op(op)?;
         }
@@ -171,6 +218,15 @@ fn validate(rules: &RuleSet) -> Result<(), DomainError> {
                 ));
             }
             _ => {}
+        }
+        if let Some(m) = &throttle.r#match {
+            validate_match_patterns(m, "throttle")?;
+            if m.graphql_operation.is_some() {
+                return Err(DomainError::ValidationError(
+                    "throttle: GraphQL operation is not supported (the request body is not read)"
+                        .into(),
+                ));
+            }
         }
     }
 
@@ -356,6 +412,77 @@ mod tests {
         );
         assert!(validate(&rule(600, None)).is_err());
         assert!(validate(&rule(200, Some("text/plain\r\nX-Evil: 1"))).is_err());
+    }
+
+    #[test]
+    fn match_patterns_are_validated_for_every_tool() {
+        let with = |m: TrafficMatch| RuleSet {
+            blocks: vec![domain::entities::rule::BlockRule {
+                id: RuleId::new(),
+                r#match: m,
+                action: BlockAction::Status(403),
+                enabled: true,
+            }],
+            ..Default::default()
+        };
+        let regex = |r: &str| TrafficMatch {
+            url_regex: Some(r.into()),
+            ..Default::default()
+        };
+        assert!(validate(&with(regex(r"https://api\.test/.*"))).is_ok());
+        assert!(validate(&with(regex("(unclosed"))).is_err());
+        assert!(validate(&with(regex(&"a".repeat(MAX_URL_REGEX_CHARS + 1)))).is_err());
+
+        let graphql = |op: &str| TrafficMatch {
+            graphql_operation: Some(op.into()),
+            ..Default::default()
+        };
+        assert!(
+            validate(&with(graphql("GetUser"))).is_ok(),
+            "alone is a valid match"
+        );
+        assert!(validate(&with(graphql("  "))).is_err());
+        let flags_only = TrafficMatch {
+            ignore_query: true,
+            case_sensitive: true,
+            ..Default::default()
+        };
+        assert!(
+            validate(&with(flags_only)).is_err(),
+            "flags alone would catch every request"
+        );
+
+        let throttle = RuleSet {
+            throttle: Some(domain::entities::rule::ThrottleProfile {
+                id: RuleId::new(),
+                name: "3G".into(),
+                down_bps: None,
+                up_bps: None,
+                latency_ms: 0,
+                r#match: Some(graphql("GetUser")),
+            }),
+            ..Default::default()
+        };
+        assert!(
+            validate(&throttle).is_err(),
+            "throttle has no request body — a GraphQL condition would never match"
+        );
+
+        let rewrite = RuleSet {
+            rewrite: vec![RewriteRule {
+                id: RuleId::new(),
+                name: "r".into(),
+                enabled: true,
+                location: domain::entities::rule::RewriteLocation::Request,
+                r#match: Some(regex("(bad")),
+                ops: vec![RewriteOp::RemoveHeader { name: "x".into() }],
+            }],
+            ..Default::default()
+        };
+        assert!(
+            validate(&rewrite).is_err(),
+            "rewrite matches are checked too"
+        );
     }
 
     #[test]
