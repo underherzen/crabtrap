@@ -137,7 +137,8 @@ to point the production name at a staging server or a backend on your Mac withou
 - Add hosts in **Tools → DNS Spoofing**, or right-click a request → **DNS Spoofing…** (the host is
   filled in). Enter an IPv4 or IPv6 address, for example `127.0.0.1` or `::1`.
 - Patterns work like in SSL Proxying: `api.example.com`, or `*.example.com`, which also matches
-  `example.com` itself. When several entries match, the first one in the list wins.
+  `example.com` itself. When several entries match, the first one in the list wins. An entry
+  applies to every port of the host; the port of the request is kept.
 - It applies to everything crabtrap connects to: plain HTTP, decrypted HTTPS, HTTPS tunnels,
   WebSockets, Repeat and Compose. After **Map Remote**, the host of the new target is the one
   looked up.

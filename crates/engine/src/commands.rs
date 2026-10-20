@@ -118,18 +118,28 @@ impl EngineState {
     /// Новая таблица DNS Spoofing. Изменилась — клиенты пересоздаются с
     /// пустыми пулами, иначе keep-alive соединения ещё до 90 с ходили бы по
     /// старому адресу. Запросы в полёте доживают на старых клиентах.
+    /// Клиенты строятся вне цикла команд (загрузка системных корней
+    /// синхронная и небыстрая); таблица и клиенты меняются вместе — запрос
+    /// не увидит новую таблицу со старым пулом.
     async fn set_dns_overrides(&self, entries: Vec<DnsOverride>) {
-        let mut current = self.dns_overrides.write().await;
-        if *current == entries {
+        if *self.dns_overrides.read().await == entries {
             return;
         }
-        *current = entries;
-        drop(current);
-        match UpstreamClients::build(&self.extra_root_certs, &self.dns_overrides) {
-            Ok(fresh) => *self.upstream.write().unwrap_or_else(|e| e.into_inner()) = fresh,
-            Err(error) => {
-                tracing::warn!(%error, "dns overrides: upstream clients not rebuilt, pooled connections keep their address")
-            }
+        let roots = self.extra_root_certs.clone();
+        let dns = Arc::clone(&self.dns_overrides);
+        let built = tokio::task::spawn_blocking(move || UpstreamClients::build(&roots, &dns)).await;
+        let mut table = self.dns_overrides.write().await;
+        *table = entries;
+        match built {
+            Ok(Ok(fresh)) => *self.upstream.write().unwrap_or_else(|e| e.into_inner()) = fresh,
+            Ok(Err(error)) => tracing::error!(
+                %error,
+                "dns overrides: upstream clients not rebuilt, pooled connections keep their address"
+            ),
+            Err(error) => tracing::error!(
+                %error,
+                "dns overrides: client rebuild task failed, pooled connections keep their address"
+            ),
         }
     }
 

@@ -66,7 +66,7 @@ pub fn fetch_snippet(
     let fields: Vec<String> = [
         Some(format!("\"headers\": {}", headers_object(&header_pairs))),
         browser_referrer.map(|r| format!("\"referrer\": {}", js_string(r))),
-        Some(format!("\"body\": {}", body_literal(body))),
+        Some(format!("\"body\": {}", body_literal(method, body))),
         Some(format!(
             "\"method\": {}",
             js_string(&method.to_ascii_uppercase())
@@ -141,10 +141,15 @@ fn headers_object(pairs: &[(String, String)]) -> String {
     format!("{{\n{}\n  }}", lines.join(",\n"))
 }
 
-/// `null`, строка или `new Uint8Array([…])` для не-UTF-8.
-fn body_literal(body: Option<&[u8]>) -> String {
+/// `null`, строка или `new Uint8Array([…])` для не-UTF-8. У GET/HEAD —
+/// всегда `null`: fetch с телом у них бросает TypeError (а небраузерный
+/// клиент через прокси мог его отправить).
+fn body_literal(method: &str, body: Option<&[u8]>) -> String {
+    let bodiless = ["GET", "HEAD"]
+        .iter()
+        .any(|m| m.eq_ignore_ascii_case(method));
     match body
-        .filter(|b| !b.is_empty())
+        .filter(|b| !b.is_empty() && !bodiless)
         .map(|b| (b, std::str::from_utf8(b)))
     {
         None => "null".into(),
@@ -233,6 +238,20 @@ mod tests {
         );
         assert!(snippet.contains(r#""credentials": "omit""#), "{snippet}");
         assert!(!snippet.contains("referrer"), "{snippet}");
+    }
+
+    #[test]
+    fn get_and_head_never_carry_a_body() {
+        for method in ["GET", "head"] {
+            let snippet = fetch_snippet(
+                FetchStyle::NodeJs,
+                method,
+                "http://a.test/",
+                &[],
+                Some(b"q=1"),
+            );
+            assert!(snippet.contains("\"body\": null"), "{snippet}");
+        }
     }
 
     #[test]
