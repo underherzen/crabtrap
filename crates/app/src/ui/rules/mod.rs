@@ -11,6 +11,7 @@
 
 pub mod dialog;
 mod rewrite_dialog;
+pub mod save_mock;
 pub mod store;
 mod table;
 mod tabs;
@@ -19,6 +20,7 @@ pub mod window;
 
 use application::use_cases::rules::edit::{Tool, tool_enabled, without_rule};
 use application::use_cases::rules::location_form::LocationForm;
+use application::use_cases::rules::save_response_mock::SavedMock;
 use domain::value_objects::RuleId;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Icon;
@@ -110,6 +112,23 @@ struct ThrottleInputs {
     latency_ms: Entity<InputState>,
 }
 
+/// Поля нового правила из трафика: локация и (Save Response & Map Local)
+/// сохранённый мок.
+#[derive(Debug, Clone)]
+pub struct Prefill {
+    pub location: LocationForm,
+    pub mock: Option<SavedMock>,
+}
+
+impl From<LocationForm> for Prefill {
+    fn from(location: LocationForm) -> Self {
+        Self {
+            location,
+            mock: None,
+        }
+    }
+}
+
 pub struct RulesScreen {
     store: Entity<RulesStore>,
     tab: RulesTab,
@@ -119,7 +138,7 @@ pub struct RulesScreen {
     /// Ошибка своих значений throttle (до сохранения).
     throttle_error: Option<String>,
     /// Из трафика: открыть диалог добавления на ближайшем рендере (нужен Window).
-    pending_prefill: Option<LocationForm>,
+    pending_prefill: Option<Prefill>,
     focus: FocusHandle,
     _observe: Subscription,
 }
@@ -153,7 +172,7 @@ impl RulesScreen {
     pub fn open_tab(
         &mut self,
         tab: RulesTab,
-        prefill: Option<LocationForm>,
+        prefill: Option<Prefill>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

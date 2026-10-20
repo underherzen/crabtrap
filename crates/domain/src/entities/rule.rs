@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::script_rule::ScriptRule;
 pub use super::ssl_proxy::SslProxyEntry;
 use super::ssl_proxy::{SSL_DEFAULTS_VERSION, any_decrypting, missing_default_excludes};
+use crate::value_objects::http_vo::HeaderEntry;
 use crate::value_objects::{RuleId, TrafficMatch};
 
 /// Снимок всех правил (версия растёт на каждом изменении).
@@ -216,6 +217,10 @@ pub struct MapLocalRule {
     /// Content-Type ответа; `None` — по расширению файла.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// Дополнительные заголовки ответа (CORS, Cache-Control, Set-Cookie…),
+    /// по порядку, повторы разрешены. Только когда файл найден.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub headers: Vec<HeaderEntry>,
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
@@ -415,11 +420,36 @@ mod tests {
         .expect("deserialize");
         assert_eq!(rule.status, DEFAULT_MAP_LOCAL_STATUS);
         assert_eq!(rule.content_type, None);
+        assert!(rule.headers.is_empty());
         let json = serde_json::to_value(&rule).expect("serialize");
         assert!(
             json.get("content_type").is_none(),
             "auto type is not written: {json}"
         );
+        assert!(
+            json.get("headers").is_none(),
+            "no extra headers are not written: {json}"
+        );
+    }
+
+    #[test]
+    fn map_local_headers_round_trip_in_order() {
+        let rule = MapLocalRule {
+            id: RuleId::new(),
+            r#match: TrafficMatch::default(),
+            local_path: "/m.json".into(),
+            status: 200,
+            content_type: None,
+            headers: vec![
+                HeaderEntry::new("Set-Cookie", "a=1"),
+                HeaderEntry::new("Access-Control-Allow-Origin", "*"),
+                HeaderEntry::new("Set-Cookie", "b=2"),
+            ],
+            enabled: true,
+        };
+        let json = serde_json::to_string(&rule).expect("serialize");
+        let back: MapLocalRule = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, rule);
     }
 
     #[test]

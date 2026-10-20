@@ -1,0 +1,281 @@
+# crabtrap User Guide
+
+How to inspect and change traffic with crabtrap. For installation and first launch, see the
+[README](../README.md#getting-started).
+
+- [Matching rules](#matching-rules)
+- [SSL Proxying](#ssl-proxying)
+- [Map Local](#map-local)
+- [Map Remote](#map-remote)
+- [Block List](#block-list)
+- [Rewrite](#rewrite)
+- [Breakpoints](#breakpoints)
+- [Scripting](#scripting)
+- [Throttle](#throttle)
+- [Repeat, Edit & Resend, Compose](#repeat-edit--resend-compose)
+- [Filters and search](#filters-and-search)
+- [Order of tools](#order-of-tools)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Where rules are stored](#where-rules-are-stored)
+
+All tools live in the **Tools** window (menu **Tools**, or right-click a request in the traffic
+table). Every tool has its own **Enable** switch. Turning a tool off keeps its rules, and every rule
+also has its own checkbox. Changes apply immediately, without restarting the proxy or dropping
+connections.
+
+Rules only see traffic crabtrap can read: plain HTTP, and HTTPS for hosts with
+[SSL Proxying](#ssl-proxying) enabled.
+
+## Matching rules
+
+Every rule has a **Host**, a **Path** and a **Method**:
+
+| Field  | Syntax | Example |
+|--------|--------|---------|
+| Host   | wildcard: `*` matches any run of characters, `?` matches one character | `api.example.com`, `*.example.com` |
+| Path   | wildcard over the path **and the query string** | `/api/v1/*` |
+| Method | exact, or *Any method* | `POST` |
+
+- Matching is case-insensitive.
+- Port and scheme are not part of the match.
+- An empty Path matches any path.
+- You can paste a full URL into the Host field and it is split into host and path.
+
+> [!IMPORTANT]
+> The Path pattern has to match the whole path **including the query string**. Because of that,
+> `/api/users` does **not** match `/api/users?page=2`. Use `/api/users*` instead. Rules created
+> from a right-click in the traffic table add the trailing `*` for you.
+
+The dialog shows a live **Matches:** preview of the final pattern.
+
+Within one tool, the first enabled matching rule wins. The exception is Rewrite, where every
+matching rule applies, in list order.
+
+## SSL Proxying
+
+crabtrap decrypts HTTPS only for hosts on the SSL Proxying list. All other HTTPS traffic passes
+through as an opaque tunnel, so you see the host but not the contents.
+
+1. Install and trust the root CA: **Settings → Certificates** (QR code and iOS profile for phones).
+2. Add hosts in **Tools → SSL Proxying**, or right-click a request → **Enable SSL Proxying for
+   <host>**.
+
+How entries match:
+- `*.example.com` also matches `example.com` itself.
+- An **exclude** entry always beats an include entry.
+- Apple hosts that use certificate pinning (`*.apple.com`, `*.icloud.com` and others) are excluded
+  by default, so system services keep working.
+
+## Map Local
+
+Answers matching requests with a file from your Mac. The request never reaches the server.
+
+**Create a rule**
+- **Tools → Map Local → +**, or
+- right-click a request → **Map Local…** (host, path and method are filled in), or
+- right-click a request → **Save Response & Map Local…**. This saves the response body to
+  `~/Library/Application Support/crabtrap/map_local/<host>/<path>`, already decompressed. It then
+  opens the Map Local dialog with that file, the response status, its Content-Type and its
+  headers. Review the values and press **Save**.
+  - The file extension comes from the Content-Type (`users.json`). An unknown type gets `.bin`.
+  - An existing file is never overwritten. A second save becomes `users-2.json`, then
+    `users-3.json`, and so on.
+  - Headers that describe that particular response are left out: `Content-Encoding`, `Set-Cookie`,
+    `Date`, `ETag`, `Alt-Svc`.
+  - Saving is refused, with a message, in three cases:
+    - the response is still loading or failed;
+    - its body was not recorded;
+    - it uses a compression crabtrap can't decode (gzip, br, deflate and zstd are supported).
+
+**Fields**
+
+| Field | Meaning |
+|-------|---------|
+| Local path | A file, or a **folder** (see below). `~` is expanded. |
+| Status | Response code, 200–599 (default 200). |
+| Content-Type | Empty means it is guessed from the file extension. |
+| Headers | Extra response headers, one `Name: value` per line, for example `Access-Control-Allow-Origin: *` or `Cache-Control: no-store`. Repeated names are allowed (`Set-Cookie`). |
+
+Some headers cannot be set here:
+- `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Proxy-Connection`, `TE`,
+  `Trailer` and `Upgrade` are always set by crabtrap.
+- `Content-Type` has its own field.
+- `Content-Encoding` is allowed, for example to serve a pre-compressed `.gz` file.
+
+**Folder mapping.** When Local path is a folder, the request path is appended to it. For example,
+`/static/app.js` is served from `<folder>/static/app.js`.
+- The query string is ignored.
+- A path ending in `/` serves `index.html`.
+- Hidden files (`.env`, `.git/…`) and anything outside the folder (`..`, symlinks that escape it)
+  are never served.
+
+**Behaviour**
+- The file is read on every request, so edits show up immediately with no reload.
+- If the file is missing, the response is `404` with a short text body. The rule's headers are
+  not added to it.
+- Content-Type by extension: json, map, html, js, css, txt, csv, md, xml, yaml, svg, png, jpg,
+  gif, webp, avif, ico, pdf, wasm, woff, woff2, ttf, otf, mp4, webm, mp3. Anything else is
+  `application/octet-stream`.
+- Rewrite, Scripting and Breakpoints on the response phase still apply to the local response.
+  Use them to change the body on the fly, pause it, and so on.
+
+Matching traffic rows are tagged `map-local`.
+
+## Map Remote
+
+Sends matching requests to another server, for example production to staging, or to
+`localhost:3000`.
+
+- **Protocol, Host, Port**: the new origin.
+- **Path**: replaces the whole original path. Leave it empty to keep the original path.
+- The original query string is kept.
+- **Keep original Host header**: by default `Host` is rewritten to the new server. Turn this on
+  for virtual hosts that expect the original name.
+
+Rows are tagged `map-remote`. Map Remote does not apply to WebSocket connections yet.
+
+## Block List
+
+For each rule, choose an action:
+- **Respond 403**: an empty `403 Forbidden` response.
+- **Drop connection**: the connection is closed.
+
+A rule with only a Host (no Path) also blocks HTTPS tunnels to that host, even without SSL
+Proxying. Rules with a Path need the traffic to be decrypted. Rows are tagged `blocked`.
+
+## Rewrite
+
+Declarative edits to requests or responses, without writing a script. A rule has a **location**
+(Request or Response), an optional match (empty means all traffic) and an ordered list of
+operations:
+
+| Operation | Notes |
+|-----------|-------|
+| Add header | Adds the header even if one with that name exists. |
+| Replace header | Case-insensitive name. All copies become one value, and the header is added if missing. |
+| Remove header | |
+| Body find/replace | Plain text or regex. The replacement can use `${1}`, and `$$` for a literal `$`. Text bodies only; compressed bodies are decompressed first. |
+| URL rewrite | Plain text or regex over the full URL. Request rules only. Map Local and Map Remote then see the rewritten URL. |
+| Set status | Response rules only. |
+
+Rows changed by a rule are tagged `modified`.
+
+## Breakpoints
+
+Pauses a matching request, response, or both, and opens an editor window:
+
+- **Request**: edit method, URL, headers and body. Changing the URL also changes where the request
+  goes (Map Local and Map Remote still apply after the edit).
+- **Response**: edit status, headers and body.
+- **Execute** (⌘↩) sends the edited message. **Abort** closes the connection.
+
+A paused exchange continues unchanged after 5 minutes, or if the client disconnects.
+
+Quick ways to add one: right-click a request → **Breakpoint…**, or ⌃⌥B (**Breakpoint for Selected
+Request**).
+
+## Scripting
+
+JavaScript that runs on requests and/or responses, with a Proxyman-compatible API. Open it from
+**Tools → Scripting**, or right-click a request → **Script…**.
+
+```js
+async function onRequest(context, url, request) {
+  request.headers["Authorization"] = "Bearer test-token";
+  request.queries["page"] = "2";
+  return request;
+}
+
+async function onResponse(context, url, request, response) {
+  response.statusCode = 200;
+  response.body = { ok: true };   // object for JSON, string for text
+  return response;
+}
+```
+
+- `request`: `method`, `url`, `scheme`, `host`, `port`, `path`, `queries`, `headers`, `body`.
+- `response`: `statusCode`, `headers`, `body`.
+- Body format:
+  - JSON and form bodies arrive as objects, text as a string.
+  - Binary bodies arrive as `bodyBase64`.
+  - A body the script doesn't touch is passed through byte-for-byte.
+- **Run as Mock API**: `onRequest` returns `{ statusCode, headers, body }` and the server is never
+  contacted. This is the most flexible way to mock a response.
+- Helpers: `console.log` (shown in the editor console), `$sharedState` (a key–value store shared
+  by all scripts), `btoa` / `atob`, `$crypto.sha256`, `$crypto.sha512`, `$crypto.randomUUID`, and
+  the **Snippets** menu.
+- **Test** runs the draft against the last matching exchange and shows the result in the console.
+- Limits:
+  - 3 s per call, so an endless loop can't hang traffic.
+  - No file or network access.
+  - Source up to 512 KiB.
+
+Rows are tagged `scripted` or `mocked`.
+
+## Throttle
+
+Simulates a slow network with one profile at a time: **Tools → Throttle**.
+- Presets: 56 kbps Modem, 256 kbps ISDN/DSL, 3G, 4G, 100 Mbps Fibre. You can also enter your own
+  download and upload speed (kbps) and latency (ms).
+- Optionally limit throttling to one location.
+- Latency is added before each request is sent. Bandwidth limits request and response bodies.
+- TLS handshakes and non-decrypted tunnels are not throttled.
+
+Rows are tagged `throttled`.
+
+## Repeat, Edit & Resend, Compose
+
+Right-click a request:
+- **Repeat** (⌃R) sends it again exactly as captured. Rules, scripts and breakpoints apply again.
+  It refuses if the request body was not fully captured.
+- **Edit & Resend…** opens the request in **Compose**, where you can change method, URL, headers
+  and body, then press ⌘↩.
+
+Repeated and composed requests show up in the traffic table, tagged `repeated` or `composed`.
+
+## Filters and search
+
+Filter bar tokens, combined with AND:
+
+| Token | Example |
+|-------|---------|
+| `host:` | `host:*.example.com` |
+| `status:` | `status:404`, `status:5xx`, `status:500-599`, `status:200,201` |
+| `method:` | `method:POST` |
+| `type:` | `type:json` (Content-Type substring) |
+| `re:` | `re:/v[12]/users` (regex over the full URL) |
+| text | substring of host or path |
+
+**Search** (⌘F) looks inside headers and/or bodies, as plain text or regex. Compressed bodies are
+decompressed, and bodies larger than 10 MiB are skipped.
+
+## Order of tools
+
+For every exchange the tools run in this order:
+
+1. **Request**: Block → Scripting `onRequest` → Rewrite → Breakpoint → Map Local / Map Remote →
+   Throttle → server.
+2. **Response**: Scripting `onResponse` → Rewrite → Breakpoint → client.
+
+So a breakpoint shows the message after scripts and rewrites, and Map Local sees the URL after
+they have changed it.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| ⌥⌘P / ⌥⌘B / ⌥⌘L / ⌥⌘R | SSL Proxying / Block List / Map Local / Map Remote |
+| ⌥⌘T / ⌥⌘E / ⌥⌘K / ⌥⌘I | Throttle / Rewrite / Breakpoints / Scripting |
+| ⌃R | Repeat selected request |
+| ⌃⌥B | Breakpoint for selected request |
+| ⇧⌘N | Compose |
+| ⌘L / ⌘F | Focus filter / search |
+| ⌘R / ⌘K | Start–stop recording / clear traffic |
+
+## Where rules are stored
+
+All rules are kept in `~/Library/Application Support/crabtrap/rules.json`. The app writes the
+file atomically. If the file is damaged, it is renamed to `rules.json.corrupt-<time>` and crabtrap
+starts with an empty rule set.
+
+Saved responses are stored in `~/Library/Application Support/crabtrap/map_local/`.

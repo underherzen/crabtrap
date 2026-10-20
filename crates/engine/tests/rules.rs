@@ -9,6 +9,7 @@ use std::time::Duration;
 use application::dto::capture::ProxyEvent;
 use application::dto::proxy_config::EngineCommand;
 use domain::entities::rule::{BlockAction, BlockRule, MapLocalRule, MapRemoteRule, RuleSet};
+use domain::value_objects::http_vo::HeaderEntry;
 use domain::value_objects::{RuleId, TrafficMatch};
 use infrastructure::services::RulesInterceptionPipeline;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -178,6 +179,7 @@ async fn map_local_serves_file_with_content_type_and_404_when_missing() {
         local_path: path,
         status: 200,
         content_type: None,
+        headers: Vec::new(),
         enabled: true,
     };
     let rules = RuleSet {
@@ -237,6 +239,7 @@ async fn map_local_uses_rule_status_and_content_type() {
         local_path: file.clone(),
         status,
         content_type: content_type.map(Into::into),
+        headers: Vec::new(),
         enabled: true,
     };
     let rules = RuleSet {
@@ -272,6 +275,57 @@ async fn map_local_uses_rule_status_and_content_type() {
         "auto type by extension: {gone}"
     );
     assert!(gone.ends_with(r#"{"error":"nope"}"#), "{gone}");
+    assert!(
+        hosts.lock().expect("lock").is_empty(),
+        "origin must not be hit"
+    );
+    cmd_tx.send(EngineCommand::Stop).await.ok();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn map_local_adds_rule_headers_only_when_file_is_served() {
+    let (origin, hosts) = spawn_named_origin("origin").await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("users.json");
+    std::fs::write(&file, b"[]").expect("write");
+    let headers = vec![
+        HeaderEntry::new("Access-Control-Allow-Origin", "*"),
+        HeaderEntry::new("Set-Cookie", "a=1"),
+        HeaderEntry::new("Set-Cookie", "b=2"),
+    ];
+    let rule = |path: PathBuf, glob: &str| MapLocalRule {
+        id: RuleId::new(),
+        r#match: match_host_path("127.0.0.1", Some(glob)),
+        local_path: path,
+        status: 200,
+        content_type: None,
+        headers: headers.clone(),
+        enabled: true,
+    };
+    let rules = RuleSet {
+        map_local: vec![
+            rule(file.clone(), "/found*"),
+            rule(dir.path().join("missing.json"), "/missing*"),
+        ],
+        ..Default::default()
+    };
+    let (engine, _events, cmd_tx) = engine_with_rules(rules).await;
+
+    let found = raw_get(&engine, &origin, "/found").await;
+    assert!(found.starts_with("http/1.1 200"), "{found}");
+    assert!(found.contains("access-control-allow-origin: *"), "{found}");
+    assert!(found.contains("set-cookie: a=1"), "{found}");
+    assert!(found.contains("set-cookie: b=2"), "repeats kept: {found}");
+    assert!(found.contains("content-type: application/json"), "{found}");
+    assert!(found.contains("content-length: 2"), "{found}");
+    assert!(found.ends_with("[]"), "{found}");
+
+    let missing = raw_get(&engine, &origin, "/missing").await;
+    assert!(missing.starts_with("http/1.1 404"), "{missing}");
+    assert!(
+        !missing.contains("access-control-allow-origin"),
+        "rule headers describe the mocked file, not the 404: {missing}"
+    );
     assert!(
         hosts.lock().expect("lock").is_empty(),
         "origin must not be hit"
@@ -401,6 +455,7 @@ async fn map_local_directory_is_confined_and_decodes_names() {
             local_path: dir.path().to_path_buf(),
             status: 200,
             content_type: None,
+            headers: Vec::new(),
             enabled: true,
         }],
         ..Default::default()

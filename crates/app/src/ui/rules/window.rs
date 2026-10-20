@@ -7,7 +7,7 @@ use gpui_kit::component::Root;
 use gpui_kit::{App, AppContext as _, Entity, Global, WindowHandle};
 
 use super::store::RulesStore;
-use super::{RulesScreen, RulesTab};
+use super::{Prefill, RulesScreen, RulesTab};
 use crate::ui::window_shell;
 use application::use_cases::rules::location_form::LocationForm;
 
@@ -38,6 +38,11 @@ pub fn store(cx: &App) -> Option<Entity<RulesStore>> {
 /// Открыть Tools на вкладке; `prefill` — сразу открыть диалог добавления
 /// с подставленными полями (правый клик в трафике).
 pub fn open(tab: RulesTab, prefill: Option<LocationForm>, cx: &mut App) {
+    open_prefilled(tab, prefill.map(Prefill::from), cx);
+}
+
+/// Открыть Tools с диалогом, заполненным локацией и, возможно, моком.
+pub fn open_prefilled(tab: RulesTab, prefill: Option<Prefill>, cx: &mut App) {
     if !cx.has_global::<ToolsWindow>() {
         tracing::warn!("tools window requested before install");
         return;

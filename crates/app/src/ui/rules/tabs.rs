@@ -27,7 +27,7 @@ use super::store::RulesStore;
 use super::table::{
     RuleRow, RuleWindowHandler, TableHandlers, enable_checkbox, rule_actions, rule_table,
 };
-use super::{RulesScreen, RulesTab};
+use super::{Prefill, RulesScreen, RulesTab};
 use crate::ui::scripting::window as scripting_window;
 
 /// Чем добавляется и правится правило вкладки.
@@ -348,6 +348,7 @@ fn init_for_edit(rules: &RuleSet, kind: DialogKind, id: RuleId) -> Option<Dialog
                 response: ResponseForm::from_response(&MapLocalResponse {
                     status: r.status,
                     content_type: r.content_type.clone(),
+                    headers: r.headers.clone(),
                 }),
                 ..base(LocationForm::from_match(&r.r#match))
             }),
@@ -478,14 +479,23 @@ impl RulesScreen {
     /// Диалог добавления с полями из трафика (правый клик → Map Local… и т.п.).
     pub(super) fn open_prefilled_dialog(
         &mut self,
-        location: LocationForm,
+        prefill: Prefill,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.tab == RulesTab::Throttle {
-            return;
+        match (self.tab, prefill.mock) {
+            (RulesTab::Throttle, _) => {}
+            (RulesTab::MapLocal, Some(mock)) => {
+                let init = DialogInit {
+                    location: prefill.location,
+                    local_path: mock.local_path.display().to_string(),
+                    response: ResponseForm::from_response(&mock.response),
+                    ..DialogInit::default()
+                };
+                open_location_dialog(DialogKind::MapLocal, self.store.clone(), init, window, cx);
+            }
+            (tab, _) => open_new(spec(tab).editor, &self.store, prefill.location, window, cx),
         }
-        open_new(spec(self.tab).editor, &self.store, location, window, cx);
     }
 }
 
@@ -495,6 +505,7 @@ mod tests {
     use application::use_cases::rules::edit::{
         parse_location, upsert_block, upsert_map_local, upsert_map_remote,
     };
+    use domain::value_objects::http_vo::HeaderEntry;
 
     #[test]
     fn map_local_edit_restores_response_and_row_shows_it() {
@@ -502,6 +513,7 @@ mod tests {
         let teapot = MapLocalResponse {
             status: 418,
             content_type: Some("text/plain".into()),
+            headers: vec![HeaderEntry::new("X-Mock", "1")],
         };
         let rules = upsert_map_local(
             RuleSet::default(),
@@ -525,6 +537,7 @@ mod tests {
             MapLocalResponse {
                 status: 404,
                 content_type: None,
+                headers: Vec::new(),
             },
         );
 
@@ -537,6 +550,7 @@ mod tests {
             ),
             ("418", "text/plain")
         );
+        assert_eq!(init.response.headers, "X-Mock: 1\n");
         let targets: Vec<String> = rows(&rules, Tool::MapLocal)
             .into_iter()
             .map(|r| r.target)

@@ -37,6 +37,7 @@ gpui_kit::actions!(
     [
         About,
         CheckForUpdates,
+        OpenUserGuide,
         HideApp,
         HideOthers,
         ShowAll,
@@ -179,10 +180,10 @@ pub fn menus(state: &MenuState) -> Vec<Menu> {
             MenuItem::action("Minimize", MinimizeWindow),
             MenuItem::action("Zoom", ZoomWindow),
         ]),
-        Menu::new("Help").items([MenuItem::action(
-            "Certificate Setup…",
-            OpenCertificateSettings,
-        )]),
+        Menu::new("Help").items([
+            MenuItem::action("User Guide", OpenUserGuide),
+            MenuItem::action("Certificate Setup…", OpenCertificateSettings),
+        ]),
     ]
 }
 
@@ -296,6 +297,8 @@ fn register_handlers(deps: &AppMenuDeps, cx: &mut App) {
         }};
     }
     on_deferred!(About, |cx| show_about(cx));
+    on_deferred!(OpenUserGuide, |cx| cx
+        .open_url(&user_guide_url(env!("CARGO_PKG_REPOSITORY"))));
     on!(CheckForUpdates, |deps, cx| updates::check(
         &deps.state,
         &deps.runtime,
@@ -429,6 +432,12 @@ fn with_active_window(cx: &mut App, f: impl FnOnce(&mut gpui_kit::Window)) {
     }
 }
 
+/// Руководство пользователя (`docs/guide.md`) в репозитории из Cargo.toml.
+fn user_guide_url(repository: &str) -> String {
+    let repo = repository.trim_end_matches('/').trim_end_matches(".git");
+    format!("{repo}/blob/main/docs/guide.md")
+}
+
 fn show_about(cx: &mut App) {
     let Some(handle) = cx.active_window() else {
         return;
@@ -479,6 +488,18 @@ mod tests {
     }
 
     #[test]
+    fn user_guide_points_at_docs_in_the_repository() {
+        assert_eq!(
+            user_guide_url("https://github.com/o/crabtrap"),
+            "https://github.com/o/crabtrap/blob/main/docs/guide.md"
+        );
+        assert_eq!(
+            user_guide_url("https://github.com/o/crabtrap.git/"),
+            "https://github.com/o/crabtrap/blob/main/docs/guide.md"
+        );
+    }
+
+    #[test]
     fn top_level_order_follows_macos_conventions() {
         let names: Vec<String> = menus(&state()).iter().map(|m| m.name.to_string()).collect();
         assert_eq!(
@@ -498,6 +519,7 @@ mod tests {
         assert!(is_checked(find(&m, "Proxy", "macOS Proxy")));
         find(&m, "crabtrap", "Settings…");
         find(&m, "crabtrap", "Check for Updates…");
+        find(&m, "Help", "User Guide");
         assert!(is_checked(find(&m, "View", "Show Sidebar")));
         assert!(is_checked(find(&m, "View", "Inspector at Bottom")));
         assert!(!is_checked(find(&m, "View", "Inspector on Right")));

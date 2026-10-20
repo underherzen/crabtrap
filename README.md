@@ -17,7 +17,8 @@
 - **Traffic** — live table with filters (`host:`, `status:4xx`, `method:`, `type:`, `re:`), full-text search in headers and bodies, sidebar grouped by domain and app.
 - **Inspectors** — headers, query, cookies, JSON/text/hex/image bodies, timing, WebSocket messages.
 - **HTTP/2 and WebSockets.**
-- **Tools** — Block List, Map Local, Map Remote, Throttle, Rewrite, Breakpoints, and JavaScript **Scripting**.
+- **Tools** — Block List, Map Local (files or folders, custom status and headers, one-click
+  "Save Response & Map Local"), Map Remote, Throttle, Rewrite, Breakpoints, and JavaScript **Scripting**.
 - **Repeat, Edit & Resend, Compose.**
 - macOS system proxy toggle, menu bar icon, status bar warnings, Check for Updates.
 
@@ -60,7 +61,10 @@ Download `crabtrap-<version>-macos-universal.dmg` from
 > Browsers may use HTTP/3 (QUIC over UDP) and bypass any HTTP proxy. Disable QUIC in the browser
 > while debugging if requests are missing.
 
-Your data lives in `~/Library/Application Support/crabtrap` (config, rules, root CA).
+Your data lives in `~/Library/Application Support/crabtrap` (config, rules, root CA, saved mocks).
+
+**How to use each tool** — matching syntax, Map Local, Rewrite, Breakpoints, Scripting and more —
+is in the [User Guide](docs/guide.md) (also **Help → User Guide** in the app).
 
 ## Build from source
 

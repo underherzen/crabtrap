@@ -34,13 +34,14 @@ pub enum RouteDecision {
     /// (файл или каталог); `relative` — уже декодированный и очищенный path
     /// запроса для правила-каталога (None — путь отклонён: скрытый файл,
     /// закодированный разделитель). Файловую систему проверяет движок.
-    /// `status` / `content_type` — ответ, когда файл найден (`None` — тип
-    /// по расширению).
+    /// `status` / `content_type` / `headers` — ответ, когда файл найден
+    /// (`None` — тип по расширению; `headers` — дополнительные, по порядку).
     MapLocal {
         root: PathBuf,
         relative: Option<PathBuf>,
         status: u16,
         content_type: Option<String>,
+        headers: Vec<HeaderEntry>,
     },
     /// Перенаправить на другой URL (Map Remote). `preserve_host` — оставить
     /// исходный заголовок Host (виртуальные хосты на staging).

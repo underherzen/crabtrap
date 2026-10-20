@@ -239,6 +239,7 @@ dependencies = [
  "domain",
  "encoding_rs",
  "futures",
+ "percent-encoding",
  "regex",
  "serde",
  "serde_json",

@@ -16,6 +16,7 @@ use domain::entities::rule::{
     ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
+use domain::value_objects::http_vo::HeaderEntry;
 use domain::value_objects::{RuleId, TrafficMatch};
 
 /// Разобрать location в условие.
@@ -114,6 +115,8 @@ pub struct MapLocalResponse {
     pub status: u16,
     /// `None` — Content-Type по расширению файла.
     pub content_type: Option<String>,
+    /// Дополнительные заголовки ответа, по порядку.
+    pub headers: Vec<HeaderEntry>,
 }
 
 impl Default for MapLocalResponse {
@@ -121,6 +124,7 @@ impl Default for MapLocalResponse {
         Self {
             status: DEFAULT_MAP_LOCAL_STATUS,
             content_type: None,
+            headers: Vec::new(),
         }
     }
 }
@@ -143,6 +147,7 @@ pub fn upsert_map_local(
                 local_path,
                 status: response.status,
                 content_type: response.content_type,
+                headers: response.headers,
                 enabled: old.is_none_or(|o| o.enabled),
             },
         ),
@@ -835,6 +840,7 @@ mod tests {
         let not_found = MapLocalResponse {
             status: 404,
             content_type: Some("text/plain".into()),
+            headers: vec![HeaderEntry::new("Cache-Control", "no-store")],
         };
         let local = upsert_map_local(
             local,
@@ -851,6 +857,10 @@ mod tests {
                 local.map_local[0].content_type.as_deref()
             ),
             (404, Some("text/plain"))
+        );
+        assert_eq!(
+            local.map_local[0].headers,
+            vec![HeaderEntry::new("Cache-Control", "no-store")]
         );
 
         let remote = upsert_map_remote(

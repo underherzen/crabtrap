@@ -23,6 +23,7 @@
 | 10 | Reverse proxy + port forwarding + DNS spoof | ⬜ | — |
 | 11 | HTTP/2 + WebSockets | ✅ | 2026-10-18 |
 | 12 | Упаковка и полировка | 🚧 (нет Developer ID) | — |
+| P | Паритет с Proxyman (Map Local, матчинг, экспорт, Allow, DNS) | 🚧 | — |
 
 Оценки: MVP (0–5) ≈ 15–19 дней; полный паритет (0–12) ≈ 40–45 дней.
 
@@ -428,6 +429,42 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
 - [x] Raw-view для h2 — decoded-рендер (HPACK wire не показать), пометка в UI; Protocol=HTTP/2 в трафике
 
 **Проверка**: h2-only сайт (Cloudflare) через MITM работает, protocol=HTTP/2 в деталях; ws://echo.websocket.org показывает сообщения; wss через MITM; повторная отправка WS-сообщения.
+
+### Track P — Паритет с Proxyman (по итогам сравнения 2026-10-20) 🚧
+
+Порядок — по пользе. Новые поля `rules.json` — только `serde(default)`; валидация — в
+`UpdateRuleSetUseCase`; применение — горячее (без разрыва соединений).
+Вне рамок: `$http`/файлы в скриптах, Protobuf, Diff (решаются отдельно).
+
+- [x] **P1. Map Local как в Proxyman** (2026-10-20)
+  - [x] `MapLocalRule.headers: Vec<HeaderEntry>` → `RouteDecision::MapLocal` → ответ движка
+        (дописываются после Content-Type/Content-Length движка; на 404 «нет файла» не применяются)
+  - [x] валидация: имя — токен, значение — ASCII в одну строку; фрейминг/hop-by-hop запрещены,
+        Content-Type — только своим полем (`response_form::map_local_header_error`)
+  - [x] UI: редактор заголовков ответа в диалоге Map Local
+  - [x] «Save Response & Map Local…»: `SaveResponseMockUseCase` + порт `MockFileStore`
+        (`DirectoryMockFileStore`, `<app-support>/map_local/<host>/…`, без перезаписи: `-2`, `-3`…);
+        диалог с префиллом status/Content-Type/заголовков (без Content-Encoding/Set-Cookie/Date/ETag/Alt-Svc)
+  - [x] таблица MIME: avif, mp4, webm, mp3, ttf/otf/woff, csv, yaml, map, md
+  - [x] документация: `docs/guide.md` (все Tools), ссылка в README, Help → User Guide
+  - [ ] ручная проверка диалога и пункта меню в GUI — не делалась агентом
+- [ ] **P2. Матчинг** (~2 дня): `url_regex` (якорный, по полному URL, кэш компиляции, заодно кэш
+      `body_regex`); `ignore_query` (path_glob только по пути; в UI по умолчанию вкл.);
+      `graphql_operation` (`operationName` из JSON-тела/query, тело — только по требованию);
+      UI Wildcard/Regex, «Ignore query», «Test rule»
+- [ ] **P3. Экспорт** (~2,5 дня, часть Phase 8): Copy as cURL; Export HAR 1.2 (выделенное/всё,
+      опция «без тел»); Import HAR — вместе с сессиями
+- [ ] **P4. Allow List** (~1,5 дня): `allow_list` + `allow_enabled`; несовпавшее — в обход без записи
+      (HTTPS — passthrough на CONNECT, HTTP — без ExchangeStarted); индикатор в тулбаре
+- [ ] **P5. DNS Spoofing** (~1 день): движок готов — сохранение в `RuleSet`, `SetDnsOverrides` на
+      старте/изменении, glob-хосты, тег `dns-spoofed`, вкладка в Tools
+- [ ] **P6. Map Remote/сеть** (~2 дня): маппинг префикса пути (`path_mode`), Map Remote для WS/WSS,
+      пресеты throttle с потерями
+- [ ] **P7.** Крупное — по существующим фазам: Reverse Proxy (Phase 10), resend WS (Phase 11),
+      сессии/mirror (Phase 8)
+
+**Проверка**: на каждую подфазу — `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,
+`cargo test --workspace`; ручная — собственный тестовый инстанс на отдельном порту + `curl -x`.
 
 ### Phase 12 — Упаковка и полировка (~3 дня) 🚧
 

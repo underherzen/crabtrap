@@ -2,7 +2,8 @@
 //! для этого запроса без ручного переписывания хоста и пути.
 //!
 //! Map Local… / Map Remote… / Block… открывают окно Tools с диалогом, где
-//! уже подставлены хост, путь и метод; Script… — Script Editor с ними же; «Enable SSL Proxying for <host>»
+//! уже подставлены хост, путь и метод; «Save Response & Map Local…» —
+//! то же, плюс тело ответа сохранено в файл мока, статус и заголовки — в форме; Script… — Script Editor с ними же; «Enable SSL Proxying for <host>»
 //! добавляет хост сразу; «Pin/Unpin <host>» — закрепить домен в боковой
 //! панели; «Copy URL» — в буфер обмена.
 
@@ -14,6 +15,7 @@ use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 
 use crate::ui::compose;
 use crate::ui::rules::RulesTab;
+use crate::ui::rules::save_mock;
 use crate::ui::rules::store::RulesStore;
 use crate::ui::rules::window as rules_window;
 use crate::ui::scripting::window as scripting_window;
@@ -60,6 +62,12 @@ pub fn exchange_menu(menu: PopupMenu, summary: &ExchangeSummaryDto, pinned: bool
         )
         .separator()
         .item(open_tool("Map Local…", RulesTab::MapLocal))
+        .item({
+            let prefill = prefill.clone();
+            PopupMenuItem::new("Save Response & Map Local…")
+                .disabled(summary.status.is_none())
+                .on_click(move |_, _, cx| save_mock::save_and_open(id, prefill.clone(), cx))
+        })
         .item(open_tool("Map Remote…", RulesTab::MapRemote))
         .item(open_tool("Block…", RulesTab::BlockList))
         .item(open_tool("Rewrite…", RulesTab::Rewrite))

@@ -1,18 +1,37 @@
-//! Поля ответа Map Local в диалоге: Status и Content-Type. Пустой Status —
-//! 200, пустой Content-Type — по расширению файла. Ошибки — по полям.
+//! Поля ответа Map Local в диалоге: Status, Content-Type и Headers. Пустой
+//! Status — 200, пустой Content-Type — по расширению файла, Headers — строки
+//! `Name: value`. Ошибки — по полям.
 
 use std::ops::RangeInclusive;
 
+use domain::value_objects::http_vo::HeaderEntry;
+
 pub use super::edit::MapLocalResponse;
+use crate::use_cases::compose::form::{is_token, parse_header_lines};
 
 /// Коды ответа Map Local: только финальные (1xx клиенту не отдать).
 pub const MAP_LOCAL_STATUS_RANGE: RangeInclusive<u16> = 200..=599;
+
+/// Заголовки, которые выставляет только движок: фрейминг и hop-by-hop
+/// (иначе клиент неверно прочтёт тело/соединение).
+const RESERVED_MAP_LOCAL_HEADERS: [&str; 8] = [
+    "content-length",
+    "transfer-encoding",
+    "connection",
+    "keep-alive",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "upgrade",
+];
 
 /// Значения полей (как введены).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResponseForm {
     pub status: String,
     pub content_type: String,
+    /// Строки `Name: value`.
+    pub headers: String,
 }
 
 /// Ошибки по полям (None — поле в порядке).
@@ -20,6 +39,7 @@ pub struct ResponseForm {
 pub struct ResponseErrors {
     pub status: Option<String>,
     pub content_type: Option<String>,
+    pub headers: Option<String>,
 }
 
 impl Default for ResponseForm {
@@ -33,6 +53,11 @@ impl ResponseForm {
         Self {
             status: response.status.to_string(),
             content_type: response.content_type.clone().unwrap_or_default(),
+            headers: response
+                .headers
+                .iter()
+                .map(|h| format!("{}: {}\n", h.name, h.value))
+                .collect(),
         }
     }
 
@@ -51,17 +76,59 @@ impl ResponseForm {
             ct => content_type_error(ct)
                 .map_or_else(|| Ok(Some(ct.to_string())), |e| Err(e.to_string())),
         };
-        match (status, content_type) {
-            (Ok(status), Ok(content_type)) => Ok(MapLocalResponse {
+        let headers = parse_headers(&self.headers);
+        match (status, content_type, headers) {
+            (Ok(status), Ok(content_type), Ok(headers)) => Ok(MapLocalResponse {
                 status,
                 content_type,
+                headers,
             }),
-            (status, content_type) => Err(ResponseErrors {
+            (status, content_type, headers) => Err(ResponseErrors {
                 status: status.err(),
                 content_type: content_type.err(),
+                headers: headers.err(),
             }),
         }
     }
+}
+
+/// Строки `Name: value` → заголовки; ошибка называет строку.
+fn parse_headers(text: &str) -> Result<Vec<HeaderEntry>, String> {
+    parse_header_lines(text)?
+        .into_iter()
+        .enumerate()
+        .map(
+            |(index, h)| match map_local_header_error(&h.name, &h.value) {
+                Some(e) => Err(format!("Header line {}: {e}", index + 1)),
+                None => Ok(HeaderEntry::new(h.name, h.value)),
+            },
+        )
+        .collect()
+}
+
+/// Почему заголовок нельзя добавить в ответ Map Local (`None` — можно):
+/// имя — HTTP-токен не из зарезервированных (Content-Type — своё поле),
+/// значение — печатный ASCII (и Tab) без переводов строк.
+pub fn map_local_header_error(name: &str, value: &str) -> Option<String> {
+    if !is_token(name) {
+        return Some(format!("invalid header name '{name}'"));
+    }
+    if name.eq_ignore_ascii_case("content-type") {
+        return Some("set Content-Type in its own field".into());
+    }
+    if RESERVED_MAP_LOCAL_HEADERS
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(name))
+    {
+        return Some(format!("{name} is set by crabtrap and can't be overridden"));
+    }
+    if !value
+        .bytes()
+        .all(|b| b == b'\t' || (0x20..=0x7e).contains(&b))
+    {
+        return Some(format!("{name}: value must be plain ASCII on one line"));
+    }
+    None
 }
 
 /// Почему значение не годится в заголовок Content-Type (`None` — годится):
@@ -85,6 +152,7 @@ mod tests {
         ResponseForm {
             status: status.into(),
             content_type: content_type.into(),
+            headers: String::new(),
         }
     }
 
@@ -98,7 +166,8 @@ mod tests {
             MapLocalResponse::default(),
             MapLocalResponse {
                 status: 200,
-                content_type: None
+                content_type: None,
+                headers: Vec::new(),
             }
         );
     }
@@ -110,6 +179,7 @@ mod tests {
             Ok(MapLocalResponse {
                 status: 404,
                 content_type: Some("text/plain; charset=utf-8".into()),
+                headers: Vec::new(),
             })
         );
         assert_eq!(form("", "").to_response(), Ok(MapLocalResponse::default()));
@@ -138,6 +208,7 @@ mod tests {
         let response = MapLocalResponse {
             status: 500,
             content_type: Some("application/problem+json".into()),
+            headers: Vec::new(),
         };
         assert_eq!(
             ResponseForm::from_response(&response).to_response(),
@@ -147,6 +218,79 @@ mod tests {
             ResponseForm::from_response(&MapLocalResponse::default()),
             ResponseForm::default()
         );
+    }
+
+    #[test]
+    fn header_lines_become_ordered_headers() {
+        let form = ResponseForm {
+            headers: "Access-Control-Allow-Origin: *\n\n  Set-Cookie: a=1 \nSet-Cookie: b=2".into(),
+            ..ResponseForm::default()
+        };
+        assert_eq!(
+            form.to_response().map(|r| r.headers),
+            Ok(vec![
+                HeaderEntry::new("Access-Control-Allow-Origin", "*"),
+                HeaderEntry::new("Set-Cookie", "a=1"),
+                HeaderEntry::new("Set-Cookie", "b=2"),
+            ])
+        );
+    }
+
+    #[test]
+    fn bad_header_lines_are_reported_on_their_field() {
+        for headers in [
+            "no colon here",
+            "Bad Name: x",
+            "Content-Length: 5",
+            "transfer-encoding: chunked",
+            "Connection: close",
+            "Content-Type: text/plain",
+            "X-Ok: caf\u{e9}",
+        ] {
+            let form = ResponseForm {
+                headers: headers.into(),
+                ..ResponseForm::default()
+            };
+            let errors = form.to_response().expect_err(headers);
+            assert!(errors.headers.is_some(), "{headers:?}");
+            assert!(errors.status.is_none(), "{headers:?}");
+        }
+    }
+
+    #[test]
+    fn headers_round_trip_through_response() {
+        let response = MapLocalResponse {
+            headers: vec![
+                HeaderEntry::new("Cache-Control", "no-store"),
+                HeaderEntry::new("X-Mock", "1"),
+            ],
+            ..MapLocalResponse::default()
+        };
+        assert_eq!(
+            ResponseForm::from_response(&response).to_response(),
+            Ok(response)
+        );
+    }
+
+    #[test]
+    fn framing_and_content_type_headers_are_reserved() {
+        for name in [
+            "Content-Length",
+            "TRANSFER-ENCODING",
+            "Connection",
+            "Keep-Alive",
+            "Proxy-Connection",
+            "TE",
+            "Trailer",
+            "Upgrade",
+            "Content-Type",
+        ] {
+            assert!(map_local_header_error(name, "x").is_some(), "{name}");
+        }
+        assert_eq!(map_local_header_error("Content-Encoding", "gzip"), None);
+        assert_eq!(map_local_header_error("X-Tab", "a\tb"), None);
+        assert!(map_local_header_error("X-Evil", "a\r\nX-Injected: 1").is_some());
+        assert!(map_local_header_error("", "x").is_some());
     }
 
     #[test]

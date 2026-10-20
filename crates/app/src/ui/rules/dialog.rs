@@ -22,7 +22,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::dialog::{DialogButtonProps, DialogFooter};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{Editor, EditorState, Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::radio::Radio;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -36,6 +36,8 @@ use super::store::RulesStore;
 /// Ширина подписи слева от поля.
 const LABEL_WIDTH: f32 = 96.;
 const DIALOG_WIDTH: f32 = 560.;
+/// Высота редактора заголовков ответа Map Local (≈4 строки).
+const HEADERS_EDITOR_HEIGHT: f32 = 84.;
 
 /// Какое правило редактирует диалог.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +125,8 @@ pub struct LocationDialog {
     local_path: Entity<InputState>,
     status: Entity<InputState>,
     content_type: Entity<InputState>,
+    /// Доп. заголовки ответа Map Local, строки `Name: value`.
+    response_headers: Entity<EditorState>,
     remote_https: bool,
     remote_host: Entity<InputState>,
     remote_port: Entity<InputState>,
@@ -169,6 +173,11 @@ impl LocationDialog {
         let remote_host = input("localhost", &remote.host);
         let remote_port = input("3000", &remote.port);
         let remote_path = input("/  (empty — keep original path)", &remote.path);
+        let response_headers = cx.new(|cx| {
+            let mut state = EditorState::new(window, cx);
+            state.set_value(init.response.headers.clone(), window, cx);
+            state
+        });
         // Предпросмотр «Matches: …» обновляется при вводе.
         let subscriptions = [&host, &path]
             .into_iter()
@@ -186,6 +195,7 @@ impl LocationDialog {
             local_path,
             status,
             content_type,
+            response_headers,
             remote_https: remote.https,
             remote_host,
             remote_port,
@@ -247,6 +257,7 @@ impl LocationDialog {
                     let response = ResponseForm {
                         status: text(&self.status, cx),
                         content_type: text(&self.content_type, cx),
+                        headers: self.response_headers.read(cx).value().to_string(),
                     }
                     .to_response();
                     let response = match (path_error, response) {
@@ -441,7 +452,33 @@ impl Render for LocationDialog {
                     Input::new(&self.content_type).into_any_element(),
                     self.errors.response.content_type.clone(),
                     danger,
-                )),
+                ))
+                .child(row(
+                    "Headers",
+                    div()
+                        .h(px(HEADERS_EDITOR_HEIGHT))
+                        .border_1()
+                        .border_color(theme.border)
+                        .rounded(px(6.))
+                        .child(
+                            Editor::new(&self.response_headers)
+                                .size_full()
+                                .bordered(false),
+                        )
+                        .into_any_element(),
+                    self.errors.response.headers.clone(),
+                    danger,
+                ))
+                .child(
+                    div()
+                        .pl(px(LABEL_WIDTH + 8.))
+                        .text_size(px(12.))
+                        .text_color(muted)
+                        .child(
+                            "One per line, e.g. Access-Control-Allow-Origin: * \
+                             — sent only when the file is found.",
+                        ),
+                ),
             DialogKind::MapRemote => body
                 .child(
                     div()

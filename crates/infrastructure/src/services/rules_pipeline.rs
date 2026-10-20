@@ -156,6 +156,7 @@ pub fn decide(route: RequestRoute<'_>, url: &url::Url) -> Result<RouteDecision, 
             relative: map_local_relative(url.path()),
             status: rule.status,
             content_type: rule.content_type.clone(),
+            headers: rule.headers.clone(),
         }),
         RequestRoute::MapRemote(rule) => Ok(match map_remote_url(rule, url) {
             Some(target) => RouteDecision::MapRemote {

@@ -8,6 +8,7 @@ mod client_process_service;
 mod direct_http_service;
 mod event_publisher;
 mod interception_pipeline;
+mod mock_file_store;
 mod proxy_engine_service;
 mod release_feed;
 mod reveal_service;
@@ -24,6 +25,7 @@ pub use interception_pipeline::{
     AbortMode, ConnectDecision, InterceptContext, InterceptOutcome, InterceptableMessage,
     RouteDecision,
 };
+pub use mock_file_store::MockFileStore;
 pub use proxy_engine_service::ProxyEngineService;
 pub use release_feed::ReleaseFeed;
 pub use reveal_service::RevealService;

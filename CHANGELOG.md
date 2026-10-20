@@ -6,6 +6,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Map Local: custom response headers (one `Name: value` per line), e.g. CORS or `Cache-Control`.
+- "Save Response & Map Local…" in the traffic context menu: saves the decoded response body under
+  `~/Library/Application Support/crabtrap/map_local/` and opens a prefilled Map Local rule.
+- Map Local recognises more file types: avif, mp4, webm, mp3, ttf, otf, woff, csv, yaml, md, source maps.
+- [User Guide](docs/guide.md) for all tools, linked from **Help → User Guide**.
+
 ## [0.1.0] - 2026-10-18
 
 First public release.

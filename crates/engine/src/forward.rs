@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use application::dto::rules::ThrottleSpecDto;
+use application::use_cases::rules::response_form::map_local_header_error;
 
 use application::dto::capture::{Direction, ExchangeSummaryDto, ProxyEvent, TlsInfoDto};
 use application::services::{
@@ -237,11 +238,13 @@ impl ProxyService {
                 relative,
                 status,
                 content_type,
+                headers,
             } => {
                 drain(req_body);
                 let found = FoundResponse {
                     status,
                     content_type: content_type.as_deref(),
+                    headers: &headers,
                 };
                 let local = map_local_response(&root, relative.as_deref(), found).await;
                 self.relay_response(ctx, pending, local).await
@@ -782,11 +785,13 @@ fn respond_response(status: u16, headers: &[HeaderEntry], body: Vec<u8>) -> Resp
     response
 }
 
-/// Ответ Map Local, когда файл найден: код и Content-Type из правила.
+/// Ответ Map Local, когда файл найден: код, Content-Type и доп. заголовки
+/// из правила.
 struct FoundResponse<'a> {
     status: u16,
     /// `None` — по расширению файла.
     content_type: Option<&'a str>,
+    headers: &'a [HeaderEntry],
 }
 
 /// Map Local: файл → `found.status` потоком (Content-Type из правила или по
@@ -805,7 +810,8 @@ async fn map_local_response(
             let content_type = found
                 .content_type
                 .unwrap_or_else(|| content_type_for(&path));
-            local_response_with(found.status, Some(content_type), length, body)
+            let response = local_response_with(found.status, Some(content_type), length, body);
+            with_extra_headers(response, found.headers)
         }
         Err(reason) => {
             tracing::warn!(root = %root.display(), ?relative, reason, "map local: not served");
@@ -816,6 +822,32 @@ async fn map_local_response(
             )
         }
     }
+}
+
+/// Дописать заголовки правила после Content-Type/Content-Length движка
+/// (повторы сохраняются). Зарезервированные (фрейминг, hop-by-hop,
+/// Content-Type) и невалидные пропускаются — правила уже проверены при
+/// сохранении, это защита от ручной правки rules.json.
+fn with_extra_headers(
+    mut response: Response<LocalBody>,
+    extra: &[HeaderEntry],
+) -> Response<LocalBody> {
+    for entry in extra {
+        if let Some(reason) = map_local_header_error(&entry.name, &entry.value) {
+            tracing::warn!(header = %entry.name, reason, "map local: header skipped");
+            continue;
+        }
+        match (
+            http::HeaderName::from_bytes(entry.name.as_bytes()),
+            HeaderValue::from_str(&entry.value),
+        ) {
+            (Ok(name), Ok(value)) => {
+                response.headers_mut().append(name, value);
+            }
+            _ => tracing::warn!(header = %entry.name, "map local: invalid header skipped"),
+        }
+    }
+    response
 }
 
 /// Итоговый файл Map Local. Правило-файл — сам файл; правило-каталог —
@@ -862,21 +894,31 @@ pub(crate) fn content_type_for(path: &Path) -> &'static str {
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
     match ext.as_str() {
-        "json" => "application/json",
+        "json" | "map" => "application/json",
         "html" | "htm" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "txt" | "log" => "text/plain; charset=utf-8",
+        "csv" => "text/csv; charset=utf-8",
+        "md" => "text/markdown; charset=utf-8",
         "xml" => "application/xml",
+        "yaml" | "yml" => "application/yaml",
         "svg" => "image/svg+xml",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "avif" => "image/avif",
         "ico" => "image/x-icon",
         "pdf" => "application/pdf",
         "wasm" => "application/wasm",
         "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
         _ => "application/octet-stream",
     }
 }
@@ -986,5 +1028,48 @@ mod tests {
             content_type_for(Path::new("blob")),
             "application/octet-stream"
         );
+    }
+
+    #[test]
+    fn extra_headers_skip_reserved_ones_from_hand_edited_rules() {
+        let response = local_response(200, Some("application/json"), bytes::Bytes::from("[]"));
+        let response = with_extra_headers(
+            response,
+            &[
+                HeaderEntry::new("Content-Length", "999"),
+                HeaderEntry::new("Transfer-Encoding", "chunked"),
+                HeaderEntry::new("X-Evil", "a\r\nb"),
+                HeaderEntry::new("X-Mock", "1"),
+            ],
+        );
+        let headers = response.headers();
+        assert_eq!(
+            headers.get_all(http::header::CONTENT_LENGTH).iter().count(),
+            1
+        );
+        assert_eq!(headers[http::header::CONTENT_LENGTH], "2");
+        assert!(headers.get(http::header::TRANSFER_ENCODING).is_none());
+        assert!(headers.get("x-evil").is_none());
+        assert_eq!(headers["x-mock"], "1");
+    }
+
+    #[test]
+    fn content_type_covers_common_mock_assets() {
+        for (file, mime) in [
+            ("a.avif", "image/avif"),
+            ("a.mp4", "video/mp4"),
+            ("a.webm", "video/webm"),
+            ("a.mp3", "audio/mpeg"),
+            ("a.ttf", "font/ttf"),
+            ("a.otf", "font/otf"),
+            ("a.woff", "font/woff"),
+            ("a.csv", "text/csv; charset=utf-8"),
+            ("a.yaml", "application/yaml"),
+            ("a.yml", "application/yaml"),
+            ("app.js.map", "application/json"),
+            ("README.md", "text/markdown; charset=utf-8"),
+        ] {
+            assert_eq!(content_type_for(Path::new(file)), mime, "{file}");
+        }
     }
 }

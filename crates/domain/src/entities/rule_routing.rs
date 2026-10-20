@@ -132,6 +132,7 @@ mod tests {
             local_path: PathBuf::from("/tmp/x.json"),
             status: 200,
             content_type: None,
+            headers: Vec::new(),
             enabled: true,
         }
     }

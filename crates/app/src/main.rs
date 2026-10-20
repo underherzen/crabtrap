@@ -32,6 +32,9 @@ use ui::traffic::search::{bind_search_input, build_search_input};
 use ui::traffic::store::TrafficStore;
 use ui::traffic::table::build_traffic_table;
 
+/// Каталог моков «Save Response & Map Local» внутри app-support.
+const MAP_LOCAL_MOCKS_DIR: &str = "map_local";
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -350,6 +353,22 @@ fn main() {
                                 application::use_cases::compose::SendComposedRequestUseCase::new(
                                     state_for_window.direct_http.clone(),
                                     state_for_window.body_decoder.clone(),
+                                ),
+                            ),
+                            runtime: handle_for_root.clone(),
+                        },
+                        cx,
+                    );
+                    ui::rules::save_mock::install(
+                        ui::rules::save_mock::SaveMockDeps {
+                            use_case: Arc::new(
+                                application::use_cases::rules::save_response_mock::SaveResponseMockUseCase::new(
+                                    state_for_window.exchange_repository.clone(),
+                                    state_for_window.body_repository.clone(),
+                                    state_for_window.body_decoder.clone(),
+                                    Arc::new(infrastructure::repositories::DirectoryMockFileStore::new(
+                                        config::AppConfig::app_dir().join(MAP_LOCAL_MOCKS_DIR),
+                                    )),
                                 ),
                             ),
                             runtime: handle_for_root.clone(),

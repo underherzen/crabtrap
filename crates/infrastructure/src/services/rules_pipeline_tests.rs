@@ -5,6 +5,7 @@
 use super::*;
 use application::services::InterceptableMessage;
 use domain::entities::rule::{BlockRule, MapLocalRule};
+use domain::value_objects::http_vo::HeaderEntry;
 use domain::value_objects::{ExchangeId, RuleId, TrafficMatch};
 use std::path::PathBuf;
 
@@ -156,6 +157,7 @@ fn map_local_route_carries_root_relative_path_and_response() {
             local_path: root.clone(),
             status: 503,
             content_type: Some("application/problem+json".into()),
+            headers: vec![HeaderEntry::new("Retry-After", "5")],
             enabled: true,
         }],
         ..Default::default()
@@ -167,6 +169,7 @@ fn map_local_route_carries_root_relative_path_and_response() {
             relative: Some(PathBuf::from("v1/users.json")),
             status: 503,
             content_type: Some("application/problem+json".into()),
+            headers: vec![HeaderEntry::new("Retry-After", "5")],
         }
     );
 }

@@ -10,8 +10,9 @@ use domain::entities::script_rule::ScriptRule;
 use domain::errors::DomainError;
 use domain::repositories::RuleRepository;
 use domain::value_objects::TrafficMatch;
+use domain::value_objects::http_vo::HeaderEntry;
 
-use super::response_form::{MAP_LOCAL_STATUS_RANGE, content_type_error};
+use super::response_form::{MAP_LOCAL_STATUS_RANGE, content_type_error, map_local_header_error};
 use crate::dto::rules::RuleSetDto;
 
 pub struct UpdateRuleSetUseCase {
@@ -133,6 +134,7 @@ fn validate(rules: &RuleSet) -> Result<(), DomainError> {
         let what = format!("map_local rule {}", rule.id);
         validate_routing_match(&rule.r#match, &what)?;
         validate_map_local_response(rule.status, rule.content_type.as_deref(), &what)?;
+        validate_map_local_headers(&rule.headers, &what)?;
     }
 
     for rule in &rules.map_remote {
@@ -243,11 +245,24 @@ fn validate_map_local_response(
     }
 }
 
+/// Доп. заголовки Map Local: имя — токен, значение — одна строка, без
+/// фрейминга/hop-by-hop и Content-Type (у него своё поле).
+fn validate_map_local_headers(headers: &[HeaderEntry], what: &str) -> Result<(), DomainError> {
+    match headers
+        .iter()
+        .find_map(|h| map_local_header_error(&h.name, &h.value))
+    {
+        Some(e) => Err(DomainError::ValidationError(format!("{what}: {e}"))),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use async_trait::async_trait;
     use domain::entities::rule::{MapRemoteRule, RewriteOp, RewriteRule, RuleSet, SslProxyEntry};
+    use domain::value_objects::http_vo::HeaderEntry;
     use domain::value_objects::{RuleId, TrafficMatch};
 
     struct MemRuleRepo {
@@ -309,6 +324,7 @@ mod tests {
                 local_path: "/tmp/x".into(),
                 status: 200,
                 content_type: None,
+                headers: Vec::new(),
                 enabled: true,
             }],
             ..Default::default()
@@ -328,6 +344,7 @@ mod tests {
                 local_path: "/tmp/x".into(),
                 status,
                 content_type: content_type.map(Into::into),
+                headers: Vec::new(),
                 enabled: true,
             }],
             ..Default::default()
@@ -339,6 +356,26 @@ mod tests {
         );
         assert!(validate(&rule(600, None)).is_err());
         assert!(validate(&rule(200, Some("text/plain\r\nX-Evil: 1"))).is_err());
+    }
+
+    #[test]
+    fn map_local_headers_are_validated() {
+        let rule = |name: &str, value: &str| RuleSet {
+            map_local: vec![domain::entities::rule::MapLocalRule {
+                id: RuleId::new(),
+                r#match: host("a.com"),
+                local_path: "/tmp/x".into(),
+                status: 200,
+                content_type: None,
+                headers: vec![HeaderEntry::new(name, value)],
+                enabled: true,
+            }],
+            ..Default::default()
+        };
+        assert!(validate(&rule("Access-Control-Allow-Origin", "*")).is_ok());
+        assert!(validate(&rule("Content-Length", "3")).is_err(), "framing");
+        assert!(validate(&rule("Bad Name", "x")).is_err());
+        assert!(validate(&rule("X-Evil", "a\r\nX-Injected: 1")).is_err());
     }
 
     #[test]
