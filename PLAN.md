@@ -424,7 +424,8 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
       подгружает дельту; Stop закрывает открытые сокеты (aborted); сокет держит слот соединения;
       close→reset — штатное закрытие; трейлеры (gRPC) переживают загрузку тела; h2: Cookie склеиваются,
       Host≠authority → HTTP/1.1-клиент, MITM h2 привязан к хосту CONNECT
-- [ ] WS: resend сообщения; idle-таймаут; правила фазы ответа на рукопожатии 101 не применяются;
+- [x] WS: resend сообщения (Track P7)
+- [ ] WS: idle-таймаут; правила фазы ответа на рукопожатии 101 не применяются;
       тесты wss через MITM и POST/gRPC через h2 — не написаны
 - [x] Raw-view для h2 — decoded-рендер (HPACK wire не показать), пометка в UI; Protocol=HTTP/2 в трафике
 
@@ -515,7 +516,10 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
         клиента, CONNECT — 405, тег `reverse-proxy`; валидация (порт, origin без пути, уникальный порт
         среди включённых); Tools → Reverse Proxy (`reverse_dialog.rs`, `ReverseProxyForm`),
         уведомление о занятом порте; тесты `engine/tests/reverse_proxy.rs`
-  - [ ] resend WS
+  - [x] resend WS (2026-10-20): `EngineCommand::SendWebSocketMessage` → регистр `WsSockets`
+        (`ws_inject.rs`, очередь на направление); `pump` вставляет кадр только на границе сообщения
+        (`WsParser::at_message_boundary`), к серверу — с маской; `WebSocketMessage.injected`;
+        `WebSocketSendFailed` → уведомление; вкладка Messages: Resend, Edit & Send…, Send Message…
   - [ ] сессии / import HAR / mirror
 
 **Проверка**: на каждую подфазу — `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,

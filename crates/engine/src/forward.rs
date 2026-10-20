@@ -629,6 +629,9 @@ impl ProxyService {
         publish_response_headers(&ctx, &parts, &parts.headers);
         strip_hop_by_hop(&mut parts.headers);
         ws::restore_response_headers(&mut parts.headers);
+        // В регистр — до ответа 101: сообщение из UI сразу после открытия
+        // сокета не должно получить «closed».
+        let queues = self.state.websockets.register(ctx.id);
         let relay = ws::relay(
             ws::WsExchange {
                 id: ctx.id,
@@ -636,7 +639,9 @@ impl ProxyService {
                 timing: ctx.timing.clone(),
                 settled: ctx.settled.clone(),
                 _connection: self.guard.clone(),
+                sockets: self.state.websockets.clone(),
             },
+            queues,
             client_upgrade,
             upstream_upgrade,
         );

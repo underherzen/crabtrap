@@ -90,6 +90,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 encoding_rs = "0.8"
 # Случайный обрыв запросов throttle (потери); уже в дереве зависимостей.
 fastrand = "2"
+# CSPRNG для ключа маски WebSocket-кадра (RFC 6455 §5.3); уже в дереве через rustls.
+ring = "0.17"
 # Скрипты (Track S): JS-движок на чистом Rust (без C) — как и остальной
 # стек; контексты !Send, живут в пуле выделенных потоков.
 boa_engine = "0.22"

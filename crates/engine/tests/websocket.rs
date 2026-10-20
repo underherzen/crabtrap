@@ -255,3 +255,132 @@ async fn map_remote_sends_the_handshake_and_frames_to_the_target() {
     .await;
     cmd_tx.send(EngineCommand::Stop).await.ok();
 }
+
+/// Рукопожатие с origin через прокси; клиентский сокет — после 101.
+async fn open_socket(engine: &str, origin: std::net::SocketAddr) -> TcpStream {
+    let mut client = TcpStream::connect(engine).await.expect("connect");
+    let handshake = format!(
+        "GET http://{origin}/socket HTTP/1.1\r\nHost: {origin}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    );
+    client
+        .write_all(handshake.as_bytes())
+        .await
+        .expect("handshake");
+    let head = read_head_only(&mut client).await;
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    client
+}
+
+async fn read_frame(client: &mut TcpStream, expected: &[u8]) {
+    let mut reply = vec![0u8; expected.len()];
+    tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut reply))
+        .await
+        .expect("frame in time")
+        .expect("read");
+    assert_eq!(reply, expected);
+}
+
+fn exchange_id(events: &std::sync::Arc<RecordingPublisher>) -> domain::value_objects::ExchangeId {
+    events
+        .snapshot()
+        .iter()
+        .find_map(|e| match e {
+            ProxyEvent::ExchangeStarted { exchange, .. } => Some(exchange.id),
+            _ => None,
+        })
+        .expect("exchange started")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn messages_from_the_ui_reach_both_sides_and_are_marked() {
+    let (origin, _handshakes) = spawn_ws_origin().await;
+    let (engine, events, cmd_tx) = spawn_engine().await;
+    let mut client = open_socket(&engine, origin).await;
+    let id = exchange_id(&events);
+
+    // К серверу: origin принимает только маскированные кадры и отвечает эхом.
+    cmd_tx
+        .send(EngineCommand::SendWebSocketMessage {
+            id,
+            direction: WsDirection::Sent,
+            opcode: WsOpcode::Text,
+            payload: b"hey".to_vec(),
+        })
+        .await
+        .expect("send");
+    read_frame(&mut client, &text_frame(b"echo: hey", None)).await;
+
+    // К клиенту: кадр без маски.
+    cmd_tx
+        .send(EngineCommand::SendWebSocketMessage {
+            id,
+            direction: WsDirection::Received,
+            opcode: WsOpcode::Text,
+            payload: b"to client".to_vec(),
+        })
+        .await
+        .expect("send");
+    read_frame(&mut client, &text_frame(b"to client", None)).await;
+
+    let injected = |direction: WsDirection, text: &str| {
+        let text = text.to_string();
+        move |e: &ProxyEvent| match e {
+            ProxyEvent::WebSocketMessage { message, .. }
+                if message.injected
+                    && message.direction == direction
+                    && message.text().as_deref() == Some(text.as_str()) =>
+            {
+                Some(())
+            }
+            _ => None,
+        }
+    };
+    wait_event(&events, injected(WsDirection::Sent, "hey")).await;
+    wait_event(&events, injected(WsDirection::Received, "to client")).await;
+    let echo_is_real = events.snapshot().iter().any(|e| {
+        matches!(e, ProxyEvent::WebSocketMessage { message, .. }
+            if !message.injected && message.text().as_deref() == Some("echo: hey"))
+    });
+    assert!(echo_is_real, "the server's reply is an ordinary message");
+    cmd_tx.send(EngineCommand::Stop).await.ok();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sending_to_a_closed_socket_reports_an_error() {
+    let (origin, _handshakes) = spawn_ws_origin().await;
+    let (engine, events, cmd_tx) = spawn_engine().await;
+    let mut client = open_socket(&engine, origin).await;
+    let id = exchange_id(&events);
+    client
+        .write_all(&[0x88, 0x80, 1, 2, 3, 4])
+        .await
+        .expect("close");
+    drop(client);
+    wait_event(&events, |e| {
+        matches!(
+            e,
+            ProxyEvent::ExchangeCompleted { .. } | ProxyEvent::ExchangeFailed { .. }
+        )
+        .then_some(())
+    })
+    .await;
+
+    cmd_tx
+        .send(EngineCommand::SendWebSocketMessage {
+            id,
+            direction: WsDirection::Sent,
+            opcode: WsOpcode::Text,
+            payload: b"late".to_vec(),
+        })
+        .await
+        .expect("send");
+
+    let error = wait_event(&events, |e| match e {
+        ProxyEvent::WebSocketSendFailed { error, .. } => Some(error.clone()),
+        _ => None,
+    })
+    .await;
+    assert!(error.contains("closed"), "{error}");
+    cmd_tx.send(EngineCommand::Stop).await.ok();
+}

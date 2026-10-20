@@ -3,8 +3,12 @@
 //! содержимое (текст — как есть, двоичное — первые байты в hex).
 
 use domain::entities::websocket::{WebSocketMessage, WsDirection, WsOpcode};
+use domain::value_objects::ExchangeId;
 use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::component::v_flex;
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::button::Button;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
+use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::{
     AnyElement, App, InteractiveElement as _, IntoElement, ParentElement, RenderOnce,
     StatefulInteractiveElement as _, Styled, Window, div, px,
@@ -13,6 +17,7 @@ use gpui_kit::{
 use super::ExchangeContext;
 use crate::ui::theme::metrics::TEXT_XS;
 use crate::ui::theme::{Palette, ToneName, glass};
+use crate::ui::websocket_send::{SendForm, can_resend, open_send_dialog, resend};
 
 /// Сколько текста сообщения показывать в строке (полное — копированием
 /// через Raw/экспорт позже).
@@ -67,6 +72,7 @@ fn opcode_label(opcode: WsOpcode) -> &'static str {
 
 fn row(
     ix: usize,
+    id: ExchangeId,
     message: &WebSocketMessage,
     mono: gpui_kit::SharedString,
     p: &Palette,
@@ -76,7 +82,12 @@ fn row(
         WsDirection::Received => ("↓", ToneName::Green),
     };
     let meta = format!(
-        "{}  {}  {} B",
+        "{}{}  {}  {} B",
+        if message.injected {
+            "sent from crabtrap · "
+        } else {
+            ""
+        },
         message
             .at
             .with_timezone(&chrono::Local)
@@ -118,6 +129,25 @@ fn row(
                         .child(message_text(message)),
                 ),
         )
+        .context_menu({
+            let message = message.clone();
+            move |menu, _, _| {
+                let resendable = can_resend(&message);
+                let (again, edit) = (message.clone(), message.clone());
+                menu.item(
+                    PopupMenuItem::new("Resend")
+                        .disabled(!resendable)
+                        .on_click(move |_, _, cx| resend(id, &again, cx)),
+                )
+                .item(
+                    PopupMenuItem::new("Edit & Send…")
+                        .disabled(!resendable)
+                        .on_click(move |_, window, cx| {
+                            open_send_dialog(id, SendForm::from_message(&edit), window, cx)
+                        }),
+                )
+            }
+        })
         .into_any_element()
 }
 
@@ -143,6 +173,7 @@ impl RenderOnce for MessagesTab {
         if skipped > 0 {
             summary.push_str(&format!(" · showing the last {SHOWN_MESSAGES}"));
         }
+        let id = self.ctx.detail.summary.id;
         v_flex()
             .id("messages-tab")
             .size_full()
@@ -150,11 +181,23 @@ impl RenderOnce for MessagesTab {
             .p(px(10.))
             .gap(px(6.))
             .child(
-                div()
+                h_flex()
                     .flex_none()
-                    .text_size(px(TEXT_XS))
-                    .text_color(p.text_tertiary)
-                    .child(summary),
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_size(px(TEXT_XS))
+                            .text_color(p.text_tertiary)
+                            .child(summary),
+                    )
+                    .child(
+                        Button::new("ws-send-message")
+                            .label("Send Message…")
+                            .xsmall()
+                            .on_click(move |_, window, cx| {
+                                open_send_dialog(id, SendForm::blank(), window, cx)
+                            }),
+                    ),
             )
             .child(
                 v_flex().flex_none().children(
@@ -162,7 +205,7 @@ impl RenderOnce for MessagesTab {
                         .iter()
                         .enumerate()
                         .skip(skipped)
-                        .map(|(ix, m)| row(ix, m, mono.clone(), &p)),
+                        .map(|(ix, m)| row(ix, id, m, mono.clone(), &p)),
                 ),
             )
             .into_any_element()
@@ -181,6 +224,7 @@ mod tests {
             payload: payload.to_vec(),
             size,
             at: Utc::now(),
+            injected: false,
         }
     }
 

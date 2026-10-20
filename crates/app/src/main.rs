@@ -209,6 +209,8 @@ fn main() {
             );
             // Окна брейкпоинтов — до pump'а (первое InterceptWaiting).
             ui::breakpoint::install(pipeline_for_ui.clone(), cx);
+            // Отправка сообщений в открытый WebSocket (вкладка Messages).
+            ui::websocket_send::install(state.engine_command.clone(), cx);
             // Консоль скриптов (Track S): ScriptLog → окна Script Editor.
             let script_console = ui::scripting::console::ScriptConsoleStore::install(cx);
             runtime::pump_events(

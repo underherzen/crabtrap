@@ -19,6 +19,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   everything else is proxied unrecorded and untouched. A status bar note shows when it is on.
 - **Copy as cURL** and **Export as HAR…** in the traffic context menu; **File → Export Session as
   HAR…** (with or without bodies).
+- WebSocket **Resend**, **Edit & Send…** and **Send Message…** in the Messages tab: send a text or
+  hex message to the server or to the client over the open connection; such messages are marked
+  "sent from crabtrap".
 - **Reverse Proxy** (Tools): a local port that forwards to a server, for clients that can't use a
   proxy; requests are recorded (tagged `reverse-proxy`) and all rules apply. Changes apply at once;
   a busy port is reported.

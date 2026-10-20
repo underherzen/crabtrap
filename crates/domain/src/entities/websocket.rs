@@ -48,6 +48,10 @@ pub struct WebSocketMessage {
     /// Полный размер содержимого.
     pub size: u64,
     pub at: DateTime<Utc>,
+    /// Отправлено из crabtrap (Resend / Send Message), а не клиентом или
+    /// сервером. Старые записи — `false`.
+    #[serde(default)]
+    pub injected: bool,
 }
 
 impl WebSocketMessage {

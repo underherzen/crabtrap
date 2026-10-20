@@ -18,6 +18,7 @@ application.workspace = true
 infrastructure = { workspace = true, optional = true }
 tokio.workspace = true
 fastrand.workspace = true
+ring.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 tower-service.workspace = true

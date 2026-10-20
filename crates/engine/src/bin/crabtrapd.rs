@@ -132,6 +132,9 @@ impl EventPublisher for PrintingPublisher {
                 )
             }
             ProxyEvent::InterceptResolved { id } => println!("[intr ] resolved {}", short(id)),
+            ProxyEvent::WebSocketSendFailed { id, error } => {
+                println!("[ws   ] {} send failed: {error}", short(id))
+            }
             ProxyEvent::ReverseProxyStatus {
                 listen_port,
                 listening,

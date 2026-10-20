@@ -28,6 +28,7 @@ pub mod theme;
 pub mod toolbar;
 pub mod traffic;
 pub mod updates;
+pub mod websocket_send;
 pub mod window_shell;
 
 use gpui_kit::component::TitleBar;

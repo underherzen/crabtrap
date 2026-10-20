@@ -89,6 +89,17 @@ impl WsParser {
         out
     }
 
+    /// Поток стоит между кадрами и не внутри фрагментированного
+    /// сообщения: сюда можно вставить свой кадр, не сломав протокол.
+    pub(crate) fn at_message_boundary(&self) -> bool {
+        self.header.is_empty() && self.frame.is_none() && self.message.is_none()
+    }
+
+    /// Поток не разбирается как RFC 6455 — вставлять в него нельзя.
+    pub(crate) fn is_broken(&self) -> bool {
+        self.broken
+    }
+
     fn start_frame(&mut self, frame: &FrameState) {
         match frame.opcode {
             0x1 | 0x2 => {
@@ -160,6 +171,41 @@ impl WsParser {
     }
 }
 
+/// Один кадр с FIN: клиентский (к серверу) — с маской `mask`, серверный —
+/// без (RFC 6455 §5.1).
+pub(crate) fn encode_frame(opcode: WsOpcode, payload: &[u8], mask: Option<[u8; 4]>) -> Vec<u8> {
+    let code = match opcode {
+        WsOpcode::Text => 0x1,
+        WsOpcode::Binary => 0x2,
+        WsOpcode::Close => 0x8,
+        WsOpcode::Ping => 0x9,
+        WsOpcode::Pong => 0xA,
+    };
+    let mask_bit = if mask.is_some() { 0x80 } else { 0 };
+    let mut out = vec![0x80 | code];
+    match payload.len() {
+        n if n < 126 => out.push(mask_bit | n as u8),
+        n => match u16::try_from(n) {
+            Ok(short) => {
+                out.push(mask_bit | 126);
+                out.extend_from_slice(&short.to_be_bytes());
+            }
+            Err(_) => {
+                out.push(mask_bit | 127);
+                out.extend_from_slice(&(n as u64).to_be_bytes());
+            }
+        },
+    }
+    match mask {
+        Some(key) => {
+            out.extend_from_slice(&key);
+            out.extend(payload.iter().enumerate().map(|(i, b)| b ^ key[i % 4]));
+        }
+        None => out.extend_from_slice(payload),
+    }
+    out
+}
+
 enum HeaderParse {
     Incomplete,
     Invalid,
@@ -226,6 +272,44 @@ fn unmask(chunk: &[u8], mask: Option<[u8; 4]>, offset: u64) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoded_frames_parse_back() {
+        for (payload, mask) in [
+            (b"hi".to_vec(), None),
+            (b"hello".to_vec(), Some([1, 2, 3, 4])),
+            (vec![7u8; 300], Some([9, 8, 7, 6])),
+            (vec![1u8; 70_000], None),
+        ] {
+            let mut parser = WsParser::default();
+            let parsed = parser.feed(&encode_frame(WsOpcode::Binary, &payload, mask));
+            assert_eq!(parsed.len(), 1);
+            assert_eq!(parsed[0].size, payload.len() as u64);
+            let kept = payload.len().min(WS_PAYLOAD_CAP);
+            assert_eq!(parsed[0].payload, payload[..kept]);
+            assert!(parser.at_message_boundary());
+        }
+    }
+
+    #[test]
+    fn boundary_waits_for_the_frame_and_the_fragmented_message() {
+        let mut parser = WsParser::default();
+        assert!(parser.at_message_boundary());
+        let whole = frame(true, 0x1, b"hello", None);
+        parser.feed(&whole[..3]);
+        assert!(!parser.at_message_boundary(), "inside a frame");
+        parser.feed(&whole[3..]);
+        assert!(parser.at_message_boundary());
+        parser.feed(&frame(false, 0x1, b"part", None));
+        assert!(!parser.at_message_boundary(), "inside a fragmented message");
+        parser.feed(&frame(true, 0x9, b"", None));
+        assert!(
+            !parser.at_message_boundary(),
+            "a ping doesn't end the message"
+        );
+        parser.feed(&frame(true, 0x0, b"end", None));
+        assert!(parser.at_message_boundary());
+    }
 
     /// Фрейм (опционально с маской) для тестов.
     fn frame(fin: bool, opcode: u8, payload: &[u8], mask: Option<[u8; 4]>) -> Vec<u8> {

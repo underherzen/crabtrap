@@ -458,6 +458,7 @@ mod tests {
             payload: vec![0; payload],
             size: payload as u64,
             at: Utc::now(),
+            injected: false,
         }
     }
 

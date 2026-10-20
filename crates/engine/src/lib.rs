@@ -28,6 +28,7 @@ mod tunnel_record;
 mod wifi;
 mod ws;
 mod ws_frames;
+mod ws_inject;
 
 use std::sync::Arc;
 

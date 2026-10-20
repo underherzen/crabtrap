@@ -19,6 +19,7 @@ use domain::value_objects::ConnectionId;
 
 use crate::client::{UpstreamClient, UpstreamClients};
 use crate::mitm::CertIssuer;
+use crate::ws_inject::{Injection, WsSockets};
 
 /// Что делать командному циклу дальше.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +55,8 @@ pub(crate) struct EngineState {
     /// Задачи CONNECT-туннелей (переживают http1-соединение, из которого
     /// выросли) — Stop их тоже прерывает.
     pub(crate) tunnels: RwLock<tokio::task::JoinSet<()>>,
+    /// Открытые WebSocket — для отправки сообщений из UI.
+    pub(crate) websockets: Arc<WsSockets>,
     /// Хранилище тел (Phase 4): tee-захват MonitoredBody.
     pub(crate) bodies: Arc<dyn BodyRepository>,
     /// Захват тел включён (EngineConfig.record_bodies; переключается
@@ -94,6 +97,7 @@ impl EngineState {
             external_proxy: RwLock::new(None),
             dns_overrides,
             tunnels: RwLock::new(tokio::task::JoinSet::new()),
+            websockets: Arc::new(WsSockets::default()),
             bodies,
             record_bodies: AtomicBool::new(record_bodies),
             body_capture_cap_bytes,
@@ -262,6 +266,23 @@ impl EngineState {
             EngineCommand::SetDnsOverrides { entries } => {
                 tracing::info!(n = entries.len(), "dns overrides set");
                 self.set_dns_overrides(entries).await;
+                CommandFlow::Continue
+            }
+            EngineCommand::SendWebSocketMessage {
+                id,
+                direction,
+                opcode,
+                payload,
+            } => {
+                let sent = self
+                    .websockets
+                    .send(&id, direction, Injection { opcode, payload });
+                if let Err(error) = sent {
+                    tracing::info!(%id, %error, "websocket message not sent");
+                    self.events.publish(
+                        application::dto::capture::ProxyEvent::WebSocketSendFailed { id, error },
+                    );
+                }
                 CommandFlow::Continue
             }
             // Перехватывается циклом `run` (там живут листенеры).

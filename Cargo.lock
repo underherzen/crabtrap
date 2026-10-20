@@ -2028,6 +2028,7 @@ dependencies = [
  "infrastructure",
  "lru",
  "rcgen",
+ "ring",
  "rustls",
  "rustls-native-certs",
  "serde",

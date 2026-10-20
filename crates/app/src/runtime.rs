@@ -392,7 +392,7 @@ pub fn pump_events(
                 });
                 ClientsStore::on_events(&clients, &batch, app);
                 crate::ui::breakpoint::on_events(&batch, app);
-                notify_reverse_proxy_errors(&batch, app);
+                notify_engine_errors(&batch, app);
                 script_console.update(app, |console, cx| {
                     if console.apply_batch(&batch) {
                         cx.notify();
@@ -404,16 +404,21 @@ pub fn pump_events(
     .detach();
 }
 
-/// Листенер Reverse Proxy не встал (порт занят и т.п.) — уведомление: в
-/// окне Tools запись выглядит включённой, а порт не слушает.
-fn notify_reverse_proxy_errors(batch: &[ProxyEvent], cx: &mut App) {
+/// Ошибки движка, у которых нет своего окна, — уведомлением: листенер
+/// Reverse Proxy не встал (в Tools запись выглядит включённой, а порт не
+/// слушает), сообщение WebSocket не ушло.
+fn notify_engine_errors(batch: &[ProxyEvent], cx: &mut App) {
     for event in batch {
-        if let ProxyEvent::ReverseProxyStatus {
-            error: Some(error), ..
-        } = event
-        {
-            crate::ui::notify::notify_error(format!("Reverse Proxy: {error}"), cx);
-        }
+        let message = match event {
+            ProxyEvent::ReverseProxyStatus {
+                error: Some(error), ..
+            } => format!("Reverse Proxy: {error}"),
+            ProxyEvent::WebSocketSendFailed { error, .. } => {
+                format!("WebSocket message not sent: {error}")
+            }
+            _ => continue,
+        };
+        crate::ui::notify::notify_error(message, cx);
     }
 }
 

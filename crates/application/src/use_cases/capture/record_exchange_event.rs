@@ -158,7 +158,8 @@ impl RecordExchangeEventUseCase {
             | ProxyEvent::InterceptResolved { .. }
             | ProxyEvent::ScriptLog { .. }
             | ProxyEvent::EngineStatus { .. }
-            | ProxyEvent::ReverseProxyStatus { .. } => Ok(()),
+            | ProxyEvent::ReverseProxyStatus { .. }
+            | ProxyEvent::WebSocketSendFailed { .. } => Ok(()),
         }
     }
 

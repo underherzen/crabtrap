@@ -264,6 +264,12 @@ pub enum ProxyEvent {
         active_conns: usize,
         error: Option<String>,
     },
+    /// Сообщение из UI в WebSocket не ушло (сокет закрыт, поток не
+    /// разбирается, тип не поддерживается).
+    WebSocketSendFailed {
+        id: ExchangeId,
+        error: String,
+    },
     /// Листенер Reverse Proxy: встал (`listening`), не смог (`error`) или
     /// погашен (оба `None`).
     ReverseProxyStatus {

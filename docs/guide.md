@@ -373,6 +373,28 @@ Right-click a request:
 
 Repeated and composed requests show up in the traffic table, tagged `repeated` or `composed`.
 
+## WebSocket messages
+
+A WebSocket connection is one row in the traffic table (protocol WebSocket). Its **Messages** tab
+lists every message: ↑ sent by the client, ↓ received from the server, with time, type and size.
+Compression (`permessage-deflate`) is turned off during the handshake, so every message can be
+read.
+
+While the connection is open you can send your own messages into it:
+- Right-click a message → **Resend** sends it again, in the same direction.
+- Right-click a message → **Edit & Send…**, or **Send Message…** above the list, opens a dialog.
+  Choose **To server** (as if the client sent it) or **To client** (as if the server sent it), and
+  **Text** or **Binary (hex)**, for example `00 ff 1a`.
+- Messages you send appear in the list marked **sent from crabtrap**.
+- crabtrap waits until the message in flight is complete before inserting yours, so neither side
+  sees a broken frame. If that takes more than 10 seconds (a long or stalled transfer), your
+  message is not sent and a notification says so. Messages to the server are masked, as the
+  protocol requires.
+- Up to 64 messages can wait per direction, each up to 16 MiB.
+- Only text and binary messages can be sent; close, ping and pong are left to the two sides.
+  Messages longer than 64 KiB were recorded only in part, so they can't be resent.
+- If the connection has closed, a notification says the message was not sent.
+
 ## Export: cURL, fetch and HAR
 
 Right-click a request → **Copy** holds everything that goes to the clipboard, as in Chrome

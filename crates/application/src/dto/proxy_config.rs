@@ -82,6 +82,15 @@ pub enum EngineCommand {
     SetReverseProxies {
         entries: Vec<ReverseProxyConfig>,
     },
+    /// Отправить сообщение в открытый WebSocket обмена `id` (Resend / Send
+    /// Message): `Sent` — серверу от имени клиента, `Received` — клиенту от
+    /// имени сервера. Не вышло — событие `WebSocketSendFailed`.
+    SendWebSocketMessage {
+        id: domain::value_objects::ExchangeId,
+        direction: domain::entities::websocket::WsDirection,
+        opcode: domain::entities::websocket::WsOpcode,
+        payload: Vec<u8>,
+    },
     /// Вкл/выкл захвата тел на лету (Phase 4, тумблер «Recording» в
     /// тулбаре): tee MonitoredBody начинает/перестаёт складывать тела.
     SetBodyCapture {
