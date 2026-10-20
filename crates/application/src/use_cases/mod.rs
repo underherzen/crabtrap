@@ -7,6 +7,7 @@
 pub mod capture;
 pub mod certificates;
 pub mod compose;
+pub mod export;
 pub mod inspection;
 pub mod proxy_config;
 pub mod rules;

@@ -15,6 +15,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Rule matching: **Regex** mode over the full URL, **Ignore query string** (on for new rules),
   and **GraphQL operation** conditions for Map Local, Map Remote, Block, Breakpoints, Rewrite and
   Scripting. Every rule dialog has a live **Test URL** check.
+- **Copy as cURL** and **Export as HAR…** in the traffic context menu; **File → Export Session as
+  HAR…** (with or without bodies).
 
 ## [0.1.0] - 2026-10-18
 

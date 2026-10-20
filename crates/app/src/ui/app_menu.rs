@@ -19,6 +19,7 @@ use gpui_kit::{Action, App, Entity, KeyBinding, Menu, MenuItem, OsAction, System
 
 use crate::app_state::AppState;
 use crate::ui::detail::DetailStore;
+use crate::ui::export;
 use crate::ui::rules::RulesTab;
 use crate::ui::rules::window as rules_window;
 use crate::ui::settings::{self, SettingsSection};
@@ -31,6 +32,7 @@ use crate::ui::traffic::search::FocusSearch;
 use crate::ui::traffic::store::TrafficStore;
 use crate::ui::traffic::{actions, context_menu};
 use crate::ui::updates;
+use application::use_cases::export::HarScope;
 
 gpui_kit::actions!(
     crabtrap,
@@ -38,6 +40,8 @@ gpui_kit::actions!(
         About,
         CheckForUpdates,
         OpenUserGuide,
+        ExportSessionHar,
+        ExportSessionHarHeadersOnly,
         HideApp,
         HideOthers,
         ShowAll,
@@ -125,6 +129,13 @@ pub fn menus(state: &MenuState) -> Vec<Menu> {
             MenuItem::action("Show All", ShowAll),
             MenuItem::separator(),
             MenuItem::action("Quit crabtrap", crate::shutdown::Quit),
+        ]),
+        Menu::new("File").items([
+            MenuItem::action("Export Session as HAR…", ExportSessionHar),
+            MenuItem::action(
+                "Export Session as HAR (Headers Only)…",
+                ExportSessionHarHeadersOnly,
+            ),
         ]),
         Menu::new("Edit").items([
             MenuItem::os_action("Undo", Undo, OsAction::Undo),
@@ -297,6 +308,18 @@ fn register_handlers(deps: &AppMenuDeps, cx: &mut App) {
         }};
     }
     on_deferred!(About, |cx| show_about(cx));
+    on_deferred!(ExportSessionHar, |cx| export::export_har(
+        HarScope::Session,
+        true,
+        export::session_file_name(),
+        cx
+    ));
+    on_deferred!(ExportSessionHarHeadersOnly, |cx| export::export_har(
+        HarScope::Session,
+        false,
+        export::session_file_name(),
+        cx
+    ));
     on_deferred!(OpenUserGuide, |cx| cx
         .open_url(&user_guide_url(env!("CARGO_PKG_REPOSITORY"))));
     on!(CheckForUpdates, |deps, cx| updates::check(
@@ -505,7 +528,7 @@ mod tests {
         assert_eq!(
             names,
             [
-                "crabtrap", "Edit", "Proxy", "View", "Tools", "Window", "Help"
+                "crabtrap", "File", "Edit", "Proxy", "View", "Tools", "Window", "Help"
             ]
         );
     }
@@ -520,6 +543,7 @@ mod tests {
         find(&m, "crabtrap", "Settings…");
         find(&m, "crabtrap", "Check for Updates…");
         find(&m, "Help", "User Guide");
+        find(&m, "File", "Export Session as HAR…");
         assert!(is_checked(find(&m, "View", "Show Sidebar")));
         assert!(is_checked(find(&m, "View", "Inspector at Bottom")));
         assert!(!is_checked(find(&m, "View", "Inspector on Right")));

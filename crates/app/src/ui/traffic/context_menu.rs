@@ -5,15 +5,18 @@
 //! уже подставлены хост, путь и метод; «Save Response & Map Local…» —
 //! то же, плюс тело ответа сохранено в файл мока, статус и заголовки — в форме; Script… — Script Editor с ними же; «Enable SSL Proxying for <host>»
 //! добавляет хост сразу; «Pin/Unpin <host>» — закрепить домен в боковой
-//! панели; «Copy URL» — в буфер обмена.
+//! панели; «Copy URL» / «Copy as cURL» — в буфер обмена; «Export as HAR…» —
+//! файл с этим обменом.
 
 use application::dto::capture::ExchangeSummaryDto;
+use application::use_cases::export::HarScope;
 use application::use_cases::rules::edit::with_ssl_host_enabled;
 use application::use_cases::rules::location_form::LocationForm;
 use gpui_kit::ClipboardItem;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 
 use crate::ui::compose;
+use crate::ui::export;
 use crate::ui::rules::RulesTab;
 use crate::ui::rules::save_mock;
 use crate::ui::rules::store::RulesStore;
@@ -109,6 +112,17 @@ pub fn exchange_menu(menu: PopupMenu, summary: &ExchangeSummaryDto, pinned: bool
         .item(PopupMenuItem::new("Copy URL").on_click(move |_, _, cx| {
             cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
         }))
+        .item(
+            PopupMenuItem::new("Copy as cURL").on_click(move |_, _, cx| export::copy_curl(id, cx)),
+        )
+        .item({
+            let name = export::exchange_file_name(&bare_host(summary));
+            PopupMenuItem::new("Export as HAR…")
+                .disabled(summary.status.is_none())
+                .on_click(move |_, _, cx| {
+                    export::export_har(HarScope::Exchange(id), true, name.clone(), cx)
+                })
+        })
 }
 
 #[cfg(test)]

@@ -7,13 +7,12 @@ use std::sync::Arc;
 use application::use_cases::rules::location_form::LocationForm;
 use application::use_cases::rules::save_response_mock::SaveResponseMockUseCase;
 use domain::value_objects::ExchangeId;
-use gpui_kit::component::WindowExt as _;
-use gpui_kit::component::notification::Notification;
 use gpui_kit::{App, Global};
 
 use super::Prefill;
 use super::RulesTab;
 use super::window as rules_window;
+use crate::ui::notify::notify_error;
 
 /// Сценарий и рантайм (tokio) для сохранения мока.
 #[derive(Clone)]
@@ -50,20 +49,8 @@ pub fn save_and_open(id: ExchangeId, location: LocationForm, cx: &mut App) {
                 };
                 rules_window::open_prefilled(RulesTab::MapLocal, Some(prefill), cx);
             }
-            Err(error) => {
-                tracing::warn!(%error, "save response as map local failed");
-                notify_error(format!("Can't save the response: {error}"), cx);
-            }
+            Err(error) => notify_error(format!("Can't save the response: {error}"), cx),
         });
     })
     .detach();
-}
-
-fn notify_error(message: String, cx: &mut App) {
-    let Some(handle) = cx.active_window() else {
-        return;
-    };
-    let _ = handle.update(cx, |_, window, cx| {
-        window.push_notification(Notification::error(message).autohide(true), cx);
-    });
 }

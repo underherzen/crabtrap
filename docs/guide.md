@@ -13,6 +13,7 @@ How to inspect and change traffic with crabtrap. For installation and first laun
 - [Scripting](#scripting)
 - [Throttle](#throttle)
 - [Repeat, Edit & Resend, Compose](#repeat-edit--resend-compose)
+- [Export: cURL and HAR](#export-curl-and-har)
 - [Filters and search](#filters-and-search)
 - [Order of tools](#order-of-tools)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -272,6 +273,40 @@ Right-click a request:
   and body, then press ⌘↩.
 
 Repeated and composed requests show up in the traffic table, tagged `repeated` or `composed`.
+
+## Export: cURL and HAR
+
+**Copy as cURL** (right-click a request) copies a `curl` command for the request **as crabtrap
+sent it to the server**: after Rewrite, Scripting and Breakpoint edits, with the recorded body. If
+a rule changed the request, the command repeats the changed version.
+- Curl sets `Content-Length`, `Transfer-Encoding` and `Connection` itself. `Host` is kept only when
+  it differs from the URL, for example a virtual host on an IP address.
+- A text body is sent with `--data-raw`, so a body that starts with `@` is never read as a file.
+- A binary body is piped in through `printf` with octal escapes. This reproduces every byte,
+  including NUL, in zsh and bash without extra files.
+- URLs that contain `[ ] { }` get `--globoff`.
+
+**HAR** (HTTP Archive 1.2) is the standard format that Chrome DevTools, Charles, Proxyman and
+Postman import.
+- Right-click a request → **Export as HAR…** saves that one exchange, with bodies. The item is
+  disabled until the response arrives.
+- **File → Export Session as HAR…** saves every recorded exchange, in the order they started.
+- **File → Export Session as HAR (Headers Only)…** leaves bodies out. Use it for smaller files, or
+  when bodies may contain secrets.
+
+What the HAR contains:
+- Response bodies are decompressed. Text is stored as is, binary as base64.
+- Request bodies are included only when they are text, because HAR has no binary form for them.
+- Exchanges that have no response yet are skipped. WebSocket messages are not exported.
+- Rule tags (`map-local`, `modified`, …) go into each entry's `comment`.
+- Timings that were not measured (DNS, connect and TLS on a reused connection) are `-1`.
+- The file is written as it goes, so a large session is never held in memory twice.
+- Only your user account can read the file. An interrupted export leaves the previous file in
+  place.
+
+> [!WARNING]
+> A HAR file contains everything that was captured: cookies, `Authorization` headers, tokens and
+> bodies. Check it before you share it.
 
 ## Filters and search
 

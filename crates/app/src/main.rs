@@ -359,6 +359,20 @@ fn main() {
                         },
                         cx,
                     );
+                    ui::export::install(
+                        ui::export::ExportDeps {
+                            use_case: Arc::new(
+                                application::use_cases::export::ExportTrafficUseCase::new(
+                                    state_for_window.exchange_repository.clone(),
+                                    state_for_window.body_repository.clone(),
+                                    state_for_window.body_decoder.clone(),
+                                    Arc::new(infrastructure::repositories::FsExportFileWriter),
+                                ),
+                            ),
+                            runtime: handle_for_root.clone(),
+                        },
+                        cx,
+                    );
                     ui::rules::save_mock::install(
                         ui::rules::save_mock::SaveMockDeps {
                             use_case: Arc::new(

@@ -461,8 +461,17 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
         превью, Test URL) в диалогах Tools, Rewrite и Script Editor; таблица правил показывает regex/GraphQL
   - [x] документация: раздел Matching rules в `docs/guide.md`
   - [ ] ручная проверка диалогов в GUI — не делалась агентом
-- [ ] **P3. Экспорт** (~2,5 дня, часть Phase 8): Copy as cURL; Export HAR 1.2 (выделенное/всё,
-      опция «без тел»); Import HAR — вместе с сессиями
+- [x] **P3. Экспорт** (2026-10-20)
+  - [x] Copy as cURL: запрос, ушедший на сервер (после правок) + его тело; sh-кавычки, `--data-raw`
+        (без `@file`), бинарное — `printf '\ooo' | curl --data-binary @-` (NUL цел), Host — если отличается, `--globoff`
+  - [x] HAR 1.2 (`use_cases/export/har.rs`): тела ответа распакованы (бинарь — base64), cookies,
+        queryString, postData, тайминги (`-1` — не измерено), теги — в `comment`; обмены без ответа — нет
+  - [x] `ExportTrafficUseCase` + порт `ExportFileWriter`/`ExportFile`: HAR пишется потоком (`HarWriter`,
+        тела — по одному обмену); `FsExportFileWriter`: tmp 0600 с уникальным именем, fsync, rename, без commit — удаляется
+  - [x] UI: контекстное меню (Copy as cURL, Export as HAR…), меню File (сессия; с телами / без)
+  - [x] документация: раздел Export в `docs/guide.md`, README, CHANGELOG
+  - [ ] Import HAR — вместе с сессиями (Phase 8)
+  - [ ] ручная проверка в GUI и открытие HAR в Chrome DevTools — не делалась агентом
 - [ ] **P4. Allow List** (~1,5 дня): `allow_list` + `allow_enabled`; несовпавшее — в обход без записи
       (HTTPS — passthrough на CONNECT, HTTP — без ExchangeStarted); индикатор в тулбаре
 - [ ] **P5. DNS Spoofing** (~1 день): движок готов — сохранение в `RuleSet`, `SetDnsOverrides` на
