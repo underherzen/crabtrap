@@ -239,6 +239,7 @@ dependencies = [
  "chrono",
  "domain",
  "encoding_rs",
+ "flate2",
  "futures",
  "percent-encoding",
  "regex",

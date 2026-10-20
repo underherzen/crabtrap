@@ -332,11 +332,13 @@ struct BodySpec {
     body_ref: BodyRef,
     /// Content-Type заголовок (приоритет) либо body_ref.content_type.
     content_type: Option<String>,
-    /// Content-Encoding заголовок (gzip/br/deflate).
+    /// Сжатие сохранённых байт (`BodyRef.encoding`: gzip/br/deflate).
     content_encoding: Option<String>,
 }
 
-/// Заголовки + BodyRef направления из деталей обмена.
+/// Что известно о теле направления. Сжатие — из `BodyRef.encoding`
+/// (как в экспорте и поиске): движок пишет его из Content-Encoding, а у
+/// импортированного из HAR тела оно пустое — HAR хранит распакованное.
 fn body_spec(detail: &ExchangeDetailDto, direction: Direction) -> Option<BodySpec> {
     match direction {
         Direction::Request => {
@@ -345,8 +347,7 @@ fn body_spec(detail: &ExchangeDetailDto, direction: Direction) -> Option<BodySpe
                 content_type: header_value(&detail.request.headers, "Content-Type")
                     .map(str::to_string)
                     .or_else(|| body_ref.content_type.clone()),
-                content_encoding: header_value(&detail.request.headers, "Content-Encoding")
-                    .map(str::to_string),
+                content_encoding: body_ref.encoding.clone(),
                 body_ref,
             })
         }
@@ -358,10 +359,7 @@ fn body_spec(detail: &ExchangeDetailDto, direction: Direction) -> Option<BodySpe
                     .as_ref()
                     .and_then(|r| header_value(&r.headers, "Content-Type").map(str::to_string))
                     .or_else(|| body_ref.content_type.clone()),
-                content_encoding: detail
-                    .response
-                    .as_ref()
-                    .and_then(|r| header_value(&r.headers, "Content-Encoding").map(str::to_string)),
+                content_encoding: body_ref.encoding.clone(),
                 body_ref,
             })
         }

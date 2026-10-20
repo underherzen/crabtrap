@@ -652,3 +652,37 @@ fn request_edited_updates_method_and_path_keeps_host() {
         "same edit is a no-op"
     );
 }
+
+#[test]
+fn imported_rows_are_added_even_paused_and_not_twice() {
+    let mut store = TrafficStore::new(true);
+    store.paused = true;
+    let row = |path: &str, status: Option<u16>, failed: Option<&str>| ImportedRow {
+        summary: ExchangeSummaryDto {
+            status,
+            req_size: 10,
+            resp_size: 20,
+            ..summary("api.test", path, "GET")
+        },
+        content_type: Some("application/json".into()),
+        failed: failed.map(Into::into),
+        ws_messages: 3,
+    };
+    let done = row("/done", Some(200), None);
+    let broken = row("/broken", None, Some("aborted (imported)"));
+
+    assert!(store.import(vec![done.clone(), broken]));
+    assert!(
+        !store.import(vec![done.clone()]),
+        "same id is not added twice"
+    );
+
+    assert_eq!(store.visible_len(), 2);
+    let added = store.row(&done.summary.id).expect("row");
+    assert!(added.responded);
+    assert_eq!(added.content_type.as_deref(), Some("application/json"));
+    assert_eq!(added.ws_messages, 3);
+    assert_eq!(store.stats.exchanges, 2);
+    assert_eq!(store.stats.failed, 1);
+    assert_eq!(store.stats.bytes, 60);
+}

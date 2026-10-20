@@ -14,6 +14,7 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use application::dto::capture::{Direction, ExchangeSummaryDto, ProxyEvent};
+use application::use_cases::sessions::ImportedRow;
 use domain::value_objects::filter_query::FilterQuery;
 use domain::value_objects::match_pattern::glob_match;
 use domain::value_objects::{ConnectionId, ExchangeId};
@@ -326,6 +327,43 @@ impl TrafficStore {
         }
         self.evict_overflow();
         self.sync_visible(&added, &updated);
+        self.domains.refresh();
+        self.apps.refresh();
+        true
+    }
+
+    /// Добавить открытые из файла обмены (сессия, HAR) — как новые строки,
+    /// даже на паузе записи: это явное действие пользователя.
+    pub fn import(&mut self, rows: Vec<ImportedRow>) -> bool {
+        let mut added = Vec::with_capacity(rows.len());
+        for imported in rows {
+            if self.rows.contains(&imported.summary.id) {
+                continue;
+            }
+            self.stats.exchanges += 1;
+            self.stats.bytes += imported.summary.req_size + imported.summary.resp_size;
+            if imported.failed.is_some() {
+                self.stats.failed += 1;
+            }
+            let row = TrafficRow {
+                responded: imported.summary.status.is_some(),
+                failed: imported.failed,
+                content_type: imported.content_type,
+                ws_messages: imported.ws_messages,
+                ..TrafficRow::new(imported.summary)
+            };
+            let seq = self.rows.push(row);
+            if let Some(row) = self.rows.by_seq(seq) {
+                self.domains.add(row);
+                self.apps.add(row);
+            }
+            added.push(seq);
+        }
+        if added.is_empty() {
+            return false;
+        }
+        self.evict_overflow();
+        self.sync_visible(&added, &[]);
         self.domains.refresh();
         self.apps.refresh();
         true

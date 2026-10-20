@@ -132,7 +132,7 @@ pub fn exchange_file_name(host: &str) -> String {
 }
 
 /// Папка по умолчанию — Загрузки (нет HOME — текущая).
-fn default_folder() -> PathBuf {
+pub(crate) fn default_folder() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join("Downloads"))
         .unwrap_or_default()

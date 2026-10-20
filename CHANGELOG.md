@@ -19,6 +19,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
   everything else is proxied unrecorded and untouched. A status bar note shows when it is on.
 - **Copy as cURL** and **Export as HAR…** in the traffic context menu; **File → Export Session as
   HAR…** (with or without bodies).
+- **File → Save Session… / Open Session…** (`.crabtrap`: requests, bodies, timings, tags and
+  WebSocket messages) and **File → Import HAR…** (Chrome, Charles, Proxyman, crabtrap; Chrome's
+  WebSocket messages included). Opened requests are added to the list, tagged `imported`.
+- The body inspector decides decompression from the stored body, not the `Content-Encoding`
+  header, so decompressed bodies from HAR are shown as is.
 - WebSocket **Resend**, **Edit & Send…** and **Send Message…** in the Messages tab: send a text or
   hex message to the server or to the client over the open connection; such messages are marked
   "sent from crabtrap".

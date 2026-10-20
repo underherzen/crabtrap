@@ -19,6 +19,7 @@ pub mod notify;
 pub mod prefs;
 pub mod rules;
 pub mod scripting;
+pub mod session;
 pub mod settings;
 pub mod sidebar;
 pub mod ssl_proxying;

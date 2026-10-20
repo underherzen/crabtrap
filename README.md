@@ -19,7 +19,7 @@
 - **HTTP/2 and WebSockets.**
 - **Tools** — Allow List, DNS Spoofing, Reverse Proxy, Block List, Map Local (files or folders, custom status and headers, one-click
   "Save Response & Map Local"), Map Remote, Throttle, Rewrite, Breakpoints, and JavaScript **Scripting**.
-- **Repeat, Edit & Resend, Compose**, **WebSocket Resend / Send Message**, **Copy as cURL / fetch / fetch (Node.js)**, **HAR export** (one request or the whole session).
+- **Repeat, Edit & Resend, Compose**, **WebSocket Resend / Send Message**, **Copy as cURL / fetch / fetch (Node.js)**, **HAR export and import**, **Save / Open Session** (`.crabtrap`).
 - macOS system proxy toggle, menu bar icon, status bar warnings, Check for Updates.
 
 ## Install

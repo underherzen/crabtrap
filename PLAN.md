@@ -390,7 +390,7 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
 ### Phase 8 — HAR export + сессии + mirror (~3 дня) ⬜
 
 - [ ] HAR-сериализатор (serde: log/entries/startedDateTime/timings-маппинг из TimingPhases/content base64, опция «без тел»)
-- [ ] `DirectorySessionRepository`: каталог `sessions/<id>/` (session.json + bodies/), save/load/list/delete
+- [x] Сессии — файлом `.crabtrap` по выбранному пути (Track P7), вместо каталога сессий
 - [ ] Mirror responses to disk (дерево host/path)
 - [ ] UI: менеджер сессий, меню Export HAR
 
@@ -474,7 +474,7 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
         заголовки убраны, `referrer` / `mode` / `credentials` для браузера, cookie + Referer для Node;
         все «Copy …» — в подменю Copy
   - [x] документация: раздел Export в `docs/guide.md`, README, CHANGELOG
-  - [ ] Import HAR — вместе с сессиями (Phase 8)
+  - [x] Import HAR — Track P7 (`sessions/har_import.rs`)
   - [ ] ручная проверка в GUI и открытие HAR в Chrome DevTools — не делалась агентом
 - [x] **P4. Allow List** (2026-10-20)
   - [x] домен: `AllowEntry`, `RuleSet.allow_list`/`allow_enabled` (старый rules.json — выключен),
@@ -520,7 +520,13 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
         (`ws_inject.rs`, очередь на направление); `pump` вставляет кадр только на границе сообщения
         (`WsParser::at_message_boundary`), к серверу — с маской; `WebSocketMessage.injected`;
         `WebSocketSendFailed` → уведомление; вкладка Messages: Resend, Edit & Send…, Send Message…
-  - [ ] сессии / import HAR / mirror
+  - [x] сессии (2026-10-20): `.crabtrap` = gzip NDJSON (`sessions/format.rs`: заголовок + запись на
+        обмен с телами base64 и WS-сообщениями, потоком, потолок строки 512 MiB);
+        `SessionFileUseCase` save/open/import_har (новые id, перепривязка тел, тег `imported`,
+        Pending → Aborted, частичный импорт при битом хвосте); порт `ImportFileReader`;
+        `TrafficStore::import`; File → Open/Save Session (⌘O/⌘S), Import HAR…; инспектор берёт
+        сжатие из `BodyRef.encoding`
+  - [ ] mirror
 
 **Проверка**: на каждую подфазу — `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,
 `cargo test --workspace`; ручная — собственный тестовый инстанс на отдельном порту + `curl -x`.

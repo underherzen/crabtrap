@@ -375,6 +375,20 @@ fn main() {
                         },
                         cx,
                     );
+                    ui::session::install(
+                        ui::session::SessionDeps {
+                            use_case: Arc::new(
+                                application::use_cases::sessions::SessionFileUseCase::new(
+                                    state_for_window.exchange_repository.clone(),
+                                    state_for_window.body_repository.clone(),
+                                    Arc::new(infrastructure::repositories::FsExportFileWriter),
+                                    Arc::new(infrastructure::repositories::FsImportFileReader),
+                                ),
+                            ),
+                            traffic: traffic_store.clone(),
+                        },
+                        cx,
+                    );
                     ui::rules::save_mock::install(
                         ui::rules::save_mock::SaveMockDeps {
                             use_case: Arc::new(

@@ -395,6 +395,30 @@ While the connection is open you can send your own messages into it:
   Messages longer than 64 KiB were recorded only in part, so they can't be resent.
 - If the connection has closed, a notification says the message was not sent.
 
+## Sessions and HAR import
+
+**File → Save Session…** (⌘S) saves the whole traffic list to a `.crabtrap` file: every request
+and response with headers, bodies (binary too), timings, tags and WebSocket messages. Like a
+Charles or Proxyman session, it opens again with everything in place.
+
+**File → Open Session…** (⌘O) adds a saved session to the traffic list. Nothing is removed: clear
+the list first if you only want the session. **File → Import HAR…** does the same with a HAR file
+from Chrome DevTools, Charles, Proxyman or crabtrap's own export.
+- Opened requests are tagged `imported` and keep their own tags. They get new IDs, so the same
+  file can be opened twice.
+- Requests that were still in progress when the session was saved are marked aborted.
+- HAR stores response bodies already decompressed, so imported bodies show as is, whatever
+  `Content-Encoding` says. WebSocket messages that Chrome adds to its HAR are imported too.
+- HAR entries crabtrap can't read are skipped, and the notification says how many. This includes
+  entries with no URL and entries whose host is an IPv6 address.
+- Limits: a HAR file up to 1 GiB; one request with its bodies up to 512 MiB in a session file
+  (saving refuses a larger one instead of writing a file that won't open). Saving and opening run
+  in the background, so the proxy keeps working.
+- A damaged or cut-off file stops at the damage. Requests before it stay in the list, and the
+  notification says what went wrong.
+- The traffic list keeps up to 10,000 requests (`capture.buffer_len` in the config file). A larger
+  session pushes out the oldest ones.
+
 ## Export: cURL, fetch and HAR
 
 Right-click a request → **Copy** holds everything that goes to the clipboard, as in Chrome

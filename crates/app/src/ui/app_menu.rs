@@ -40,6 +40,9 @@ gpui_kit::actions!(
         About,
         CheckForUpdates,
         OpenUserGuide,
+        OpenSession,
+        SaveSession,
+        ImportHar,
         ExportSessionHar,
         ExportSessionHarHeadersOnly,
         HideApp,
@@ -137,6 +140,10 @@ pub fn menus(state: &MenuState) -> Vec<Menu> {
             MenuItem::action("Quit crabtrap", crate::shutdown::Quit),
         ]),
         Menu::new("File").items([
+            MenuItem::action("Open Session…", OpenSession),
+            MenuItem::action("Save Session…", SaveSession),
+            MenuItem::separator(),
+            MenuItem::action("Import HAR…", ImportHar),
             MenuItem::action("Export Session as HAR…", ExportSessionHar),
             MenuItem::action(
                 "Export Session as HAR (Headers Only)…",
@@ -218,6 +225,8 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-k", ClearTraffic, Some(MAIN_WINDOW_CONTEXT)),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
+        KeyBinding::new("cmd-o", OpenSession, None),
+        KeyBinding::new("cmd-s", SaveSession, None),
         KeyBinding::new("alt-cmd-p", OpenSslProxyingTool, None),
         KeyBinding::new("alt-cmd-a", OpenAllowList, None),
         KeyBinding::new("alt-cmd-b", OpenBlockList, None),
@@ -315,6 +324,9 @@ fn register_handlers(deps: &AppMenuDeps, cx: &mut App) {
         }};
     }
     on_deferred!(About, |cx| show_about(cx));
+    on_deferred!(OpenSession, |cx| crate::ui::session::open_session(cx));
+    on_deferred!(SaveSession, |cx| crate::ui::session::save_session(cx));
+    on_deferred!(ImportHar, |cx| crate::ui::session::import_har(cx));
     on_deferred!(ExportSessionHar, |cx| export::export_har(
         HarScope::Session,
         true,
