@@ -93,16 +93,17 @@ fn validate_routing_match(m: &TrafficMatch, what: &str) -> Result<(), DomainErro
     validate_match_patterns(m, what)
 }
 
-/// Цель Map Remote: абсолютный http(s)-URL с хостом.
+/// Цель Map Remote: абсолютный http(s)- или ws(s)-URL с хостом.
 fn validate_remote_url(remote: &str, what: &str) -> Result<(), DomainError> {
     let valid = url::Url::parse(remote).is_ok_and(|u| {
-        matches!(u.scheme(), "http" | "https") && u.host_str().is_some_and(|h| !h.is_empty())
+        matches!(u.scheme(), "http" | "https" | "ws" | "wss")
+            && u.host_str().is_some_and(|h| !h.is_empty())
     });
     if valid {
         Ok(())
     } else {
         Err(DomainError::ValidationError(format!(
-            "{what}: remote must be an absolute http(s) URL with a host, got '{remote}'"
+            "{what}: remote must be an absolute http(s) or ws(s) URL with a host, got '{remote}'"
         )))
     }
 }
@@ -240,6 +241,12 @@ fn validate(rules: &RuleSet) -> Result<(), DomainError> {
                 ));
             }
             _ => {}
+        }
+        if throttle.loss_percent > 100 {
+            return Err(DomainError::ValidationError(format!(
+                "throttle: loss must be 0–100 %, got {}",
+                throttle.loss_percent
+            )));
         }
         if let Some(m) = &throttle.r#match {
             validate_match_patterns(m, "throttle")?;
@@ -481,10 +488,24 @@ mod tests {
                 down_bps: None,
                 up_bps: None,
                 latency_ms: 0,
+                loss_percent: 0,
                 r#match: Some(graphql("GetUser")),
             }),
             ..Default::default()
         };
+        let too_lossy = RuleSet {
+            throttle: Some(domain::entities::rule::ThrottleProfile {
+                id: RuleId::new(),
+                name: "x".into(),
+                down_bps: None,
+                up_bps: None,
+                latency_ms: 0,
+                loss_percent: 101,
+                r#match: None,
+            }),
+            ..Default::default()
+        };
+        assert!(validate(&too_lossy).is_err(), "loss is a percentage");
         assert!(
             validate(&throttle).is_err(),
             "throttle has no request body — a GraphQL condition would never match"
@@ -553,20 +574,29 @@ mod tests {
     }
 
     #[test]
-    fn map_remote_target_must_be_http_url_with_host() {
+    fn map_remote_target_must_be_http_or_ws_url_with_host() {
         let rule = |remote: &str| RuleSet {
             map_remote: vec![MapRemoteRule {
                 id: RuleId::new(),
                 r#match: host("a.com"),
                 remote: remote.into(),
                 preserve_host: false,
+                path_mode: domain::entities::RemotePathMode::Replace,
                 enabled: true,
             }],
             ..Default::default()
         };
         assert!(validate(&rule("http://localhost:3000")).is_ok());
         assert!(validate(&rule("https://staging.example.com/v2")).is_ok());
-        for bad in ["foo://x", "https://", "staging.internal", "ftp://h/"] {
+        assert!(validate(&rule("ws://localhost:3000/socket")).is_ok());
+        assert!(validate(&rule("wss://staging.example.com")).is_ok());
+        for bad in [
+            "foo://x",
+            "https://",
+            "wss://",
+            "staging.internal",
+            "ftp://h/",
+        ] {
             assert!(validate(&rule(bad)).is_err(), "{bad} must be rejected");
         }
     }
@@ -677,6 +707,7 @@ mod tests {
                 },
                 remote: "staging.internal".into(),
                 preserve_host: false,
+                path_mode: domain::entities::RemotePathMode::Replace,
                 enabled: true,
             }],
             ..Default::default()

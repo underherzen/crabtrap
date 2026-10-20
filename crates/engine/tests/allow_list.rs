@@ -67,6 +67,7 @@ fn rules(allowed: &str) -> RuleSet {
             },
             remote: "http://127.0.0.1:9".into(),
             preserve_host: false,
+            path_mode: domain::entities::RemotePathMode::Replace,
             enabled: true,
         }],
         blocks: vec![BlockRule {

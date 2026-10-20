@@ -166,6 +166,10 @@ pub struct ThrottleProfile {
     /// Добавочная задержка на обмен, мс.
     #[serde(default)]
     pub latency_ms: u64,
+    /// Доля запросов (0–100 %), которые обрываются без ответа после
+    /// задержки — потери сети на уровне запросов (пакетов прокси не видит).
+    #[serde(default)]
+    pub loss_percent: u8,
     #[serde(default, rename = "match")]
     pub r#match: Option<TrafficMatch>,
 }
@@ -254,12 +258,30 @@ pub struct MapRemoteRule {
     pub id: RuleId,
     #[serde(rename = "match")]
     pub r#match: TrafficMatch,
-    /// Целевой origin (`https://staging.example.com`).
+    /// Цель (`https://staging.example.com`, `ws://localhost:3000/v2`).
     pub remote: String,
     #[serde(default)]
     pub preserve_host: bool,
+    /// Как путь цели сочетается с путём запроса. Старый rules.json —
+    /// `Replace` (поведение до появления поля).
+    #[serde(default)]
+    pub path_mode: RemotePathMode,
     #[serde(default = "default_true")]
     pub enabled: bool,
+}
+
+/// Путь итогового URL Map Remote.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemotePathMode {
+    /// Путь цели (если задан) заменяет путь запроса целиком; без пути у
+    /// цели — путь запроса как есть.
+    #[default]
+    Replace,
+    /// Неизменная часть шаблона пути (до первого `*`/`?`) заменяется путём
+    /// цели, остаток пути сохраняется: `/v1/*` → `/v2` даёт
+    /// `/v1/users/7` → `/v2/users/7`.
+    Prefix,
 }
 
 /// Действие при блокировке.
@@ -570,6 +592,7 @@ mod tests {
                 down_bps: Some(64 * 1024),
                 up_bps: None,
                 latency_ms: 500,
+                loss_percent: 0,
                 r#match: None,
             }),
             ..Default::default()

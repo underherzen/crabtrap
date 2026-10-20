@@ -121,6 +121,7 @@ struct ThrottleInputs {
     down_kbps: Entity<InputState>,
     up_kbps: Entity<InputState>,
     latency_ms: Entity<InputState>,
+    loss_percent: Entity<InputState>,
 }
 
 /// Поля нового правила из трафика: локация и (Save Response & Map Local)
@@ -164,6 +165,7 @@ impl RulesScreen {
             down_kbps: input("e.g. 768"),
             up_kbps: input("e.g. 384"),
             latency_ms: input("e.g. 150"),
+            loss_percent: input("0"),
         };
         let _observe = cx.observe(&store, |_, _, cx| cx.notify());
         Self {

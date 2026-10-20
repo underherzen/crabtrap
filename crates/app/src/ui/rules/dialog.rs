@@ -15,7 +15,7 @@ use application::use_cases::rules::location_form::{
     LocationErrors, LocationForm, RemoteTargetForm,
 };
 use application::use_cases::rules::response_form::{ResponseErrors, ResponseForm};
-use domain::entities::rule::{BlockAction, BreakPhase, RuleSet};
+use domain::entities::rule::{BlockAction, BreakPhase, RemotePathMode, RuleSet};
 use domain::value_objects::RuleId;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::WindowExt as _;
@@ -100,6 +100,7 @@ impl Default for DialogInit {
             response: ResponseForm::default(),
             remote: None,
             keep_host: false,
+            remote_path_mode: RemotePathMode::Replace,
             break_phase: BreakPhase::Request,
         }
     }
@@ -119,6 +120,8 @@ pub struct DialogInit {
     pub response: ResponseForm,
     pub remote: Option<RemoteTargetForm>,
     pub keep_host: bool,
+    /// Map Remote: путь цели заменяет весь путь или только префикс шаблона.
+    pub remote_path_mode: RemotePathMode,
     /// Фаза брейкпоинта.
     pub break_phase: BreakPhase,
 }
@@ -152,6 +155,7 @@ pub struct LocationDialog {
     /// Query цели Map Remote: полей нет, но при правке не теряется.
     remote_query: String,
     keep_host: bool,
+    remote_path_mode: RemotePathMode,
     break_phase: BreakPhase,
     errors: Errors,
 }
@@ -211,6 +215,7 @@ impl LocationDialog {
             remote_path,
             remote_query: remote.query.clone(),
             keep_host: init.keep_host,
+            remote_path_mode: init.remote_path_mode,
             break_phase: init.break_phase,
             errors: Errors::default(),
         }
@@ -317,8 +322,10 @@ impl LocationDialog {
                             return false;
                         }
                     };
-                    let keep = self.keep_host;
-                    Box::new(move |rules| Ok(upsert_map_remote(rules, id, location, url, keep)))
+                    let (keep, path_mode) = (self.keep_host, self.remote_path_mode);
+                    Box::new(move |rules| {
+                        Ok(upsert_map_remote(rules, id, location, url, keep, path_mode))
+                    })
                 }
                 DialogKind::Breakpoint => {
                     let phase = self.break_phase;
@@ -518,6 +525,39 @@ impl Render for LocationDialog {
                     None,
                     danger,
                 ))
+                .child(row(
+                    "",
+                    Checkbox::new("remote-path-prefix")
+                        .label("Replace only the fixed start of the matched path")
+                        .checked(self.remote_path_mode == RemotePathMode::Prefix)
+                        .on_click({
+                            let weak = weak.clone();
+                            move |checked, _, cx| {
+                                let mode = match *checked {
+                                    true => RemotePathMode::Prefix,
+                                    false => RemotePathMode::Replace,
+                                };
+                                set_flag(&weak, cx, move |d| d.remote_path_mode = mode)
+                            }
+                        })
+                        .into_any_element(),
+                    None,
+                    danger,
+                ))
+                .child(
+                    div()
+                        .pl(px(LABEL_WIDTH + 8.))
+                        .text_size(px(12.))
+                        .text_color(muted)
+                        .child(match self.remote_path_mode {
+                            RemotePathMode::Prefix => {
+                                "Path /v1/* → /v2: /v1/users/7 goes to /v2/users/7."
+                            }
+                            RemotePathMode::Replace => {
+                                "A target path replaces the whole request path; empty keeps it."
+                            }
+                        }),
+                )
                 .child(row(
                     "",
                     Checkbox::new("remote-keep-host")

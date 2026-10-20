@@ -62,6 +62,7 @@ pub fn tag_tone(tag: &str) -> ToneName {
         "map-local" | "mapped-local" => ToneName::Purple,
         "map-remote" | "mapped-remote" => ToneName::Teal,
         "throttled" => ToneName::Yellow,
+        "dropped" => ToneName::Red,
         "dns-spoofed" => ToneName::Orange,
         _ => {
             const POOL: [ToneName; 5] = [

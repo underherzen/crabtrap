@@ -212,11 +212,23 @@ Sends matching requests to another server, for example production to staging, or
 
 - **Protocol, Host, Port**: the new origin.
 - **Path**: replaces the whole original path. Leave it empty to keep the original path.
-- The original query string is kept.
+- **Replace only the fixed start of the matched path**: keeps the rest of the path. The fixed
+  start is the leading path segments that match the segments of the rule's Path pattern without
+  `*` (`?` stands for one character). A segment like `v1*` counts only when the request segment
+  is exactly `v1`.
+  - `/v1/*` → `/v2`: `/v1/users/7` goes to `/v2/users/7`.
+  - `/api/*` → empty path: `/api/users` goes to `/users`, which strips the prefix.
+  - `/v1*` → `/v2`: `/v1/users` goes to `/v2/users`, but `/v10/x` goes to `/v2/v10/x`.
+  - No Path pattern, or no segment matches: the target path is put in front, `/users` →
+    `/mock/users`.
+- The original query string is kept, unless the target has its own.
 - **Keep original Host header**: by default `Host` is rewritten to the new server. Turn this on
   for virtual hosts that expect the original name.
+- WebSocket connections are mapped too: the handshake goes to the new server, then messages flow
+  as usual. For a `wss://` connection, SSL Proxying must be on for the host. In `rules.json` a
+  `ws://`/`wss://` target is the same as `http://`/`https://`.
 
-Rows are tagged `map-remote`. Map Remote does not apply to WebSocket connections yet.
+Rows are tagged `map-remote`.
 
 ## Block List
 
@@ -299,10 +311,22 @@ Rows are tagged `scripted` or `mocked`.
 ## Throttle
 
 Simulates a slow network with one profile at a time: **Tools → Throttle**.
-- Presets: 56 kbps Modem, 256 kbps ISDN/DSL, 3G, 4G, 100 Mbps Fibre. You can also enter your own
-  download and upload speed (kbps) and latency (ms).
+- Presets: 56 kbps Modem, 256 kbps ISDN/DSL, 3G, Lossy 3G, 4G, 100 Mbps Fibre, Very Bad Network,
+  100% Loss. You can also enter your own download and upload speed (kbps), latency (ms) and
+  **Drop %**.
 - Optionally limit throttling to one location.
 - Latency is added before each request is sent. Bandwidth limits request and response bodies.
+- **Drop %** simulates losses. After the latency, that share of requests is closed without a
+  response and never reaches the server; the row fails and is tagged `dropped`. crabtrap works
+  with whole requests, not packets, so there are no partial responses or retransmits.
+  - The client connection is closed, so with HTTP/2 the other requests on that connection fail
+    too, as they would when a real connection drops.
+  - Traffic outside the Allow List is never throttled or dropped.
+  | Preset | Down / Up | Latency | Drop |
+  |--------|-----------|---------|------|
+  | Lossy 3G | 768 / 384 kbps | 300 ms | 5 % |
+  | Very Bad Network | 1000 / 500 kbps | 500 ms | 10 % |
+  | 100% Loss | — | 0 ms | 100 % |
 - TLS handshakes and non-decrypted tunnels are not throttled.
 
 Rows are tagged `throttled`.

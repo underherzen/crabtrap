@@ -19,6 +19,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
   everything else is proxied unrecorded and untouched. A status bar note shows when it is on.
 - **Copy as cURL** and **Export as HAR…** in the traffic context menu; **File → Export Session as
   HAR…** (with or without bodies).
+- Map Remote: **Replace only the fixed start of the matched path** (`/v1/*` → `/v2` maps
+  `/v1/users/7` to `/v2/users/7`); WebSocket handshakes are mapped, `ws://`/`wss://` targets are
+  accepted.
+- Throttle: **Drop %** (a share of requests is closed without a response, tagged `dropped`) and
+  presets Lossy 3G, Very Bad Network, 100% Loss.
 - **DNS Spoofing** (Tools, or right-click → DNS Spoofing…): connect chosen hosts (`*.example.com`
   patterns too) to a given IPv4/IPv6 address while keeping Host, SNI and certificate checks.
   Spoofed traffic is tagged `dns-spoofed`; changes apply to the next request.

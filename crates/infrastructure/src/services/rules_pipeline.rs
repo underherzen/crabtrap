@@ -17,8 +17,9 @@ use application::services::{
 use async_trait::async_trait;
 use domain::entities::RequestRoute;
 use domain::entities::rule::BreakPhase;
-use domain::entities::rule::{BlockAction, MapRemoteRule, RuleSet};
-use domain::value_objects::Host;
+use domain::entities::rule::{BlockAction, MapRemoteRule, RemotePathMode, RuleSet};
+use domain::value_objects::match_pattern::glob_match;
+use domain::value_objects::{Host, TrafficMatch};
 
 /// Файл, который отдаётся для запроса каталога (`/` на конце).
 const DIRECTORY_INDEX: &str = "index.html";
@@ -149,22 +150,79 @@ pub fn map_local_relative(url_path: &str) -> Option<PathBuf> {
     Some(relative)
 }
 
-/// Итоговый URL Map Remote: схема/хост/порт — из `remote`; path — из
-/// `remote`, если он задан (не пустой и не `/`), иначе исходный; query
-/// исходный, если у `remote` своего нет. `None` — `remote` не URL.
+/// Итоговый URL Map Remote: схема/хост/порт — из `remote` (`ws`/`wss` —
+/// это `http`/`https`: рукопожатие WebSocket — обычный HTTP-запрос); path —
+/// по [`RemotePathMode`]; query исходный, если у `remote` своего нет.
+/// `None` — `remote` не URL.
 pub fn map_remote_url(rule: &MapRemoteRule, original: &url::Url) -> Option<url::Url> {
     let remote = url::Url::parse(&rule.remote).ok()?;
+    let scheme = match remote.scheme() {
+        "ws" => "http",
+        "wss" => "https",
+        scheme => scheme,
+    };
     let mut target = original.clone();
-    target.set_scheme(remote.scheme()).ok()?;
+    target.set_scheme(scheme).ok()?;
     target.set_host(remote.host_str()).ok()?;
     target.set_port(remote.port()).ok()?;
-    if !matches!(remote.path(), "" | "/") {
-        target.set_path(remote.path());
+    match rule.path_mode {
+        RemotePathMode::Replace if !matches!(remote.path(), "" | "/") => {
+            target.set_path(remote.path())
+        }
+        RemotePathMode::Replace => {}
+        RemotePathMode::Prefix => target.set_path(&prefixed_path(
+            remote.path(),
+            &rule.r#match,
+            original.path(),
+        )),
     }
     if remote.query().is_some() {
         target.set_query(remote.query());
     }
     Some(target)
+}
+
+/// Режим Prefix: ведущие сегменты пути, совпавшие с неизменными
+/// сегментами шаблона, заменяются путём цели, остаток сохраняется.
+/// Неизменный сегмент — без `*` (`?` — один символ); `v1*` считается им,
+/// только если сегмент запроса — ровно `v1`. Ни один не совпал (или
+/// шаблона нет) — путь цели ставится перед путём целиком.
+fn prefixed_path(remote_path: &str, path_match: &TrafficMatch, path: &str) -> String {
+    let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    let consumed = path_match.path_glob.as_deref().map_or(0, |glob| {
+        fixed_segments(glob, &segments, path_match.case_sensitive)
+    });
+    let rest = match consumed {
+        0 => path.to_string(),
+        n => segments[n..].join("/"),
+    };
+    let base = remote_path.trim_end_matches('/');
+    match (rest.as_str(), rest.starts_with('/')) {
+        ("", _) if remote_path.is_empty() => "/".to_string(),
+        ("", _) => remote_path.to_string(),
+        (_, true) => format!("{base}{rest}"),
+        (_, false) => format!("{base}/{rest}"),
+    }
+}
+
+/// Сколько ведущих сегментов пути покрывают неизменные сегменты шаблона.
+fn fixed_segments(glob: &str, segments: &[&str], case_sensitive: bool) -> usize {
+    let mut consumed = 0;
+    for (pattern, segment) in glob.trim_start_matches('/').split('/').zip(segments) {
+        let open_tail = pattern
+            .strip_suffix('*')
+            .filter(|literal| !literal.contains(['*', '?']));
+        match (pattern.contains('*'), open_tail) {
+            (false, _) if glob_match(pattern, segment, case_sensitive) => consumed += 1,
+            (true, Some(literal))
+                if !literal.is_empty() && glob_match(literal, segment, case_sensitive) =>
+            {
+                return consumed + 1;
+            }
+            _ => return consumed,
+        }
+    }
+    consumed
 }
 
 /// Действие Block → маршрут или обрыв.

@@ -100,6 +100,7 @@ async fn request_rewrite_runs_before_map_remote() {
             },
             remote: "https://staging.test".into(),
             preserve_host: false,
+            path_mode: domain::entities::RemotePathMode::Replace,
             enabled: true,
         }],
         ..Default::default()

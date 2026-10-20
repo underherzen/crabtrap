@@ -11,8 +11,8 @@ use application::use_cases::rules::edit::{
 use application::use_cases::rules::location_form::{LocationForm, RemoteTargetForm};
 use application::use_cases::rules::response_form::ResponseForm;
 use domain::entities::rule::{
-    BlockAction, BreakPhase, DEFAULT_MAP_LOCAL_STATUS, MapLocalRule, RewriteLocation, RewriteRule,
-    RuleSet,
+    BlockAction, BreakPhase, DEFAULT_MAP_LOCAL_STATUS, MapLocalRule, MapRemoteRule, RemotePathMode,
+    RewriteLocation, RewriteRule, RuleSet,
 };
 use domain::entities::script_rule::ScriptRule;
 use domain::value_objects::RuleId;
@@ -263,11 +263,7 @@ fn rows(rules: &RuleSet, tool: Tool) -> Vec<RuleRow> {
                 id: r.id,
                 enabled: r.enabled,
                 location: format_location(&r.r#match),
-                target: if r.preserve_host {
-                    format!("{}  (keep Host)", r.remote)
-                } else {
-                    r.remote.clone()
-                },
+                target: map_remote_target(r),
             })
             .collect(),
         Tool::Rewrite => rules
@@ -338,6 +334,21 @@ fn script_target(rule: &ScriptRule) -> String {
     .filter_map(|(on, label)| on.then_some(label))
     .collect();
     format!("{} — {}", rule.name, phases.join(" · "))
+}
+
+/// Колонка «Map to»: цель и отличия от умолчаний в скобках.
+fn map_remote_target(rule: &MapRemoteRule) -> String {
+    let notes: Vec<&str> = [
+        (rule.path_mode == RemotePathMode::Prefix).then_some("prefix"),
+        rule.preserve_host.then_some("keep Host"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    match notes.is_empty() {
+        true => rule.remote.clone(),
+        false => format!("{}  ({})", rule.remote, notes.join(", ")),
+    }
 }
 
 /// Колонка «Local file»: путь, а нестандартный ответ — в скобках.
@@ -414,6 +425,7 @@ fn init_for_edit(rules: &RuleSet, kind: DialogKind, id: RuleId) -> Option<Dialog
             .map(|r| DialogInit {
                 remote: Some(RemoteTargetForm::from_url(&r.remote)),
                 keep_host: r.preserve_host,
+                remote_path_mode: r.path_mode,
                 ..base(LocationForm::from_match(&r.r#match))
             }),
         DialogKind::Breakpoint => {
@@ -630,6 +642,7 @@ mod tests {
             loc(),
             "https://s.example.com:8443/m".into(),
             true,
+            RemotePathMode::Prefix,
         );
 
         let block = init_for_edit(&rules, DialogKind::Block, rules.blocks[0].id).expect("block");
@@ -641,6 +654,12 @@ mod tests {
             init_for_edit(&rules, DialogKind::MapRemote, rules.map_remote[0].id).expect("remote");
         let target = remote.remote.expect("target");
         assert!(target.https && remote.keep_host);
+        assert_eq!(remote.remote_path_mode, RemotePathMode::Prefix);
+        let row = &rows(&rules, Tool::MapRemote)[0];
+        assert_eq!(
+            row.target,
+            "https://s.example.com:8443/m  (prefix, keep Host)"
+        );
         assert_eq!(
             (target.host.as_str(), target.port.as_str()),
             ("s.example.com", "8443")

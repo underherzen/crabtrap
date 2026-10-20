@@ -4,7 +4,7 @@
 
 use super::*;
 use application::services::InterceptableMessage;
-use domain::entities::rule::{BlockRule, MapLocalRule};
+use domain::entities::rule::{BlockRule, MapLocalRule, RemotePathMode};
 use domain::value_objects::http_vo::HeaderEntry;
 use domain::value_objects::{ExchangeId, RuleId, TrafficMatch};
 use std::path::PathBuf;
@@ -59,8 +59,121 @@ fn remote(remote: &str, preserve_host: bool) -> MapRemoteRule {
         r#match: host_match("api.example.com"),
         remote: remote.into(),
         preserve_host,
+        path_mode: RemotePathMode::Replace,
         enabled: true,
     }
+}
+
+/// Map Remote с шаблоном пути и режимом Prefix.
+fn prefix_remote(path_glob: Option<&str>, remote_url: &str) -> MapRemoteRule {
+    MapRemoteRule {
+        r#match: TrafficMatch {
+            host_glob: Some("api.example.com".into()),
+            path_glob: path_glob.map(Into::into),
+            ..Default::default()
+        },
+        path_mode: RemotePathMode::Prefix,
+        ..remote(remote_url, false)
+    }
+}
+
+fn mapped(rule: &MapRemoteRule, original: &str) -> String {
+    let original = url::Url::parse(original).expect("url");
+    map_remote_url(rule, &original).expect("mapped").to_string()
+}
+
+#[test]
+fn prefix_mode_swaps_the_fixed_part_of_the_path_pattern() {
+    let rule = prefix_remote(Some("/v1/*"), "http://localhost:3000/v2");
+    assert_eq!(
+        mapped(&rule, "https://api.example.com/v1/users/7?x=1"),
+        "http://localhost:3000/v2/users/7?x=1"
+    );
+    assert_eq!(
+        mapped(&rule, "https://api.example.com/v1/"),
+        "http://localhost:3000/v2"
+    );
+    let no_slash = prefix_remote(Some("/v1*"), "http://localhost:3000/v2/");
+    assert_eq!(
+        mapped(&no_slash, "https://api.example.com/v1/users"),
+        "http://localhost:3000/v2/users"
+    );
+}
+
+#[test]
+fn prefix_mode_strips_the_prefix_for_a_bare_target_and_prepends_without_a_pattern() {
+    let strip = prefix_remote(Some("/api/*"), "http://localhost:3000");
+    assert_eq!(
+        mapped(&strip, "https://api.example.com/api/users"),
+        "http://localhost:3000/users"
+    );
+    let prepend = prefix_remote(None, "http://localhost:3000/mock");
+    assert_eq!(
+        mapped(&prepend, "https://api.example.com/users"),
+        "http://localhost:3000/mock/users"
+    );
+    let other_case = prefix_remote(Some("/API/*"), "http://localhost:3000/v2");
+    assert_eq!(
+        mapped(&other_case, "https://api.example.com/api/x"),
+        "http://localhost:3000/v2/x"
+    );
+}
+
+#[test]
+fn prefix_mode_works_on_whole_path_segments() {
+    let partial = prefix_remote(Some("/v1*"), "http://h/v2");
+    assert_eq!(
+        mapped(&partial, "https://api.example.com/v10/x"),
+        "http://h/v2/v10/x",
+        "/v10 is not the /v1 segment — kept whole"
+    );
+    let single = prefix_remote(Some("/v1/a?c/*"), "http://h/v2");
+    assert_eq!(
+        mapped(&single, "https://api.example.com/v1/abc/x"),
+        "http://h/v2/x",
+        "? stands for one character of a fixed segment"
+    );
+    let mismatch = prefix_remote(Some("/v1/*"), "http://h/mock");
+    assert_eq!(
+        mapped(&mismatch, "https://api.example.com/other/y"),
+        "http://h/mock/other/y"
+    );
+    let trailing = prefix_remote(Some("/v1/*"), "http://h/v2/");
+    assert_eq!(
+        mapped(&trailing, "https://api.example.com/v1/users/"),
+        "http://h/v2/users/"
+    );
+}
+
+#[test]
+fn prefix_mode_honours_case_sensitivity() {
+    let rule = MapRemoteRule {
+        r#match: TrafficMatch {
+            host_glob: Some("api.example.com".into()),
+            path_glob: Some("/API/*".into()),
+            case_sensitive: true,
+            ..Default::default()
+        },
+        ..prefix_remote(None, "http://h/v2")
+    };
+    assert_eq!(
+        mapped(&rule, "https://api.example.com/api/x"),
+        "http://h/v2/api/x"
+    );
+}
+
+#[test]
+fn websocket_targets_map_to_http_schemes() {
+    let ws = remote("ws://localhost:3000/socket", false);
+    assert_eq!(
+        mapped(&ws, "https://api.example.com/chat"),
+        "http://localhost:3000/socket"
+    );
+    let wss = remote("wss://staging.example.com", false);
+    assert_eq!(
+        mapped(&wss, "http://api.example.com/chat?room=1"),
+        "https://staging.example.com/chat?room=1"
+    );
 }
 
 #[test]

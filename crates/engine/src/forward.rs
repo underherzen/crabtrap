@@ -186,6 +186,16 @@ impl ProxyService {
             if spec.latency_ms > 0 {
                 tokio::time::sleep(Duration::from_millis(spec.latency_ms)).await;
             }
+            if dropped_by_loss(spec.loss_percent, fastrand::u8(0..100)) {
+                publish_tag(&ctx, DROPPED_TAG);
+                publish_failure(
+                    &ctx.events,
+                    &ctx.settled,
+                    ctx.id,
+                    format!("dropped by throttle ({}% loss)", spec.loss_percent),
+                );
+                return Err(CloseConnection);
+            }
         }
 
         // `te: trailers` — не hop-by-hop для h2 (gRPC без него не работает).
@@ -1035,6 +1045,14 @@ fn abort(mode: AbortMode, ctx: &ExchangeCtx) -> ServiceResult {
     }
 }
 
+/// Тег обмена, оборванного throttle (потери).
+const DROPPED_TAG: &str = "dropped";
+
+/// Обрыв по доле потерь: `roll` — случайное 0..100.
+fn dropped_by_loss(loss_percent: u8, roll: u8) -> bool {
+    roll < loss_percent
+}
+
 fn abort_label(mode: &AbortMode) -> String {
     match mode {
         AbortMode::Close => "connection closed".to_string(),
@@ -1097,6 +1115,16 @@ fn publish_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loss_percent_bounds_the_drop_rate() {
+        assert!((0..100).all(|roll| !dropped_by_loss(0, roll)));
+        assert!((0..100).all(|roll| dropped_by_loss(100, roll)));
+        assert_eq!(
+            (0..100).filter(|roll| dropped_by_loss(25, *roll)).count(),
+            25
+        );
+    }
 
     #[test]
     fn h2_cookie_fields_are_joined() {

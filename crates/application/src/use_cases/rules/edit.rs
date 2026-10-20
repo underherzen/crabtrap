@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use domain::DomainError;
 use domain::entities::rule::{
     AllowEntry, BlockAction, BlockRule, BreakPhase, BreakpointRule, DEFAULT_MAP_LOCAL_STATUS,
-    DnsSpoofEntry, MapLocalRule, MapRemoteRule, RewriteLocation, RewriteOp, RewriteRule, RuleSet,
-    SslProxyEntry, ThrottleProfile,
+    DnsSpoofEntry, MapLocalRule, MapRemoteRule, RemotePathMode, RewriteLocation, RewriteOp,
+    RewriteRule, RuleSet, SslProxyEntry, ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
 use domain::value_objects::http_vo::HeaderEntry;
@@ -176,6 +176,7 @@ pub fn upsert_map_remote(
     location: TrafficMatch,
     remote: String,
     preserve_host: bool,
+    path_mode: RemotePathMode,
 ) -> RuleSet {
     RuleSet {
         map_remote: upsert(
@@ -187,6 +188,7 @@ pub fn upsert_map_remote(
                 r#match: location,
                 remote,
                 preserve_host,
+                path_mode,
                 enabled: old.is_none_or(|o| o.enabled),
             },
         ),
@@ -742,44 +744,48 @@ pub fn with_rule_toggled(rules: RuleSet, id: RuleId) -> RuleSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThrottlePreset {
     pub name: &'static str,
+    pub values: ThrottleValues,
+}
+
+/// Значения профиля throttle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThrottleValues {
     /// Байт/сек вниз.
     pub down_bps: u64,
     /// Байт/сек вверх.
     pub up_bps: u64,
     pub latency_ms: u64,
+    /// Доля обрываемых запросов, 0–100 %.
+    pub loss_percent: u8,
+}
+
+const fn preset(
+    name: &'static str,
+    down_bps: u64,
+    up_bps: u64,
+    latency_ms: u64,
+    loss_percent: u8,
+) -> ThrottlePreset {
+    ThrottlePreset {
+        name,
+        values: ThrottleValues {
+            down_bps,
+            up_bps,
+            latency_ms,
+            loss_percent,
+        },
+    }
 }
 
 pub const THROTTLE_PRESETS: &[ThrottlePreset] = &[
-    ThrottlePreset {
-        name: "56 kbps Modem",
-        down_bps: 7_000,
-        up_bps: 6_000,
-        latency_ms: 200,
-    },
-    ThrottlePreset {
-        name: "256 kbps ISDN/DSL",
-        down_bps: 32_000,
-        up_bps: 32_000,
-        latency_ms: 50,
-    },
-    ThrottlePreset {
-        name: "3G",
-        down_bps: 96_000,
-        up_bps: 48_000,
-        latency_ms: 150,
-    },
-    ThrottlePreset {
-        name: "4G",
-        down_bps: 1_250_000,
-        up_bps: 625_000,
-        latency_ms: 50,
-    },
-    ThrottlePreset {
-        name: "100 Mbps Fibre",
-        down_bps: 12_500_000,
-        up_bps: 12_500_000,
-        latency_ms: 5,
-    },
+    preset("56 kbps Modem", 7_000, 6_000, 200, 0),
+    preset("256 kbps ISDN/DSL", 32_000, 32_000, 50, 0),
+    preset("3G", 96_000, 48_000, 150, 0),
+    preset("Lossy 3G", 96_000, 48_000, 300, 5),
+    preset("4G", 1_250_000, 625_000, 50, 0),
+    preset("100 Mbps Fibre", 12_500_000, 12_500_000, 5, 0),
+    preset("Very Bad Network", 125_000, 62_500, 500, 10),
+    preset("100% Loss", 12_500_000, 12_500_000, 0, 100),
 ];
 
 /// Включить throttle по пресету (на весь трафик или по location).
@@ -788,37 +794,32 @@ pub fn with_throttle_preset(
     preset: &ThrottlePreset,
     location: Option<TrafficMatch>,
 ) -> RuleSet {
-    RuleSet {
-        throttle: Some(ThrottleProfile {
-            id: rules.throttle.as_ref().map(|t| t.id).unwrap_or_default(),
-            name: preset.name.to_string(),
-            down_bps: Some(preset.down_bps),
-            up_bps: Some(preset.up_bps),
-            latency_ms: preset.latency_ms,
-            r#match: location,
-        }),
-        ..rules
-    }
+    with_throttle_values(rules, preset.name, preset.values, location)
 }
 
 /// Имя профиля, заданного вручную (не пресет).
 pub const CUSTOM_THROTTLE: &str = "Custom";
 
-/// Свои значения throttle (байт/сек, мс); scope и id профиля сохраняются.
-pub fn with_throttle_custom(
-    rules: RuleSet,
-    down_bps: u64,
-    up_bps: u64,
-    latency_ms: u64,
-) -> RuleSet {
+/// Свои значения throttle; scope и id профиля сохраняются.
+pub fn with_throttle_custom(rules: RuleSet, values: ThrottleValues) -> RuleSet {
     let scope = rules.throttle.as_ref().and_then(|t| t.r#match.clone());
+    with_throttle_values(rules, CUSTOM_THROTTLE, values, scope)
+}
+
+fn with_throttle_values(
+    rules: RuleSet,
+    name: &str,
+    values: ThrottleValues,
+    scope: Option<TrafficMatch>,
+) -> RuleSet {
     RuleSet {
         throttle: Some(ThrottleProfile {
             id: rules.throttle.as_ref().map(|t| t.id).unwrap_or_default(),
-            name: CUSTOM_THROTTLE.to_string(),
-            down_bps: Some(down_bps),
-            up_bps: Some(up_bps),
-            latency_ms,
+            name: name.to_string(),
+            down_bps: Some(values.down_bps),
+            up_bps: Some(values.up_bps),
+            latency_ms: values.latency_ms,
+            loss_percent: values.loss_percent,
             r#match: scope,
         }),
         ..rules
@@ -981,7 +982,14 @@ mod tests {
             PathBuf::from("/tmp/a.json"),
             MapLocalResponse::default(),
         );
-        let rules = upsert_map_remote(rules, None, loc(), "http://localhost:3000".into(), false);
+        let rules = upsert_map_remote(
+            rules,
+            None,
+            loc(),
+            "http://localhost:3000".into(),
+            false,
+            RemotePathMode::Replace,
+        );
         assert_eq!(
             (
                 rules.blocks.len(),
@@ -1107,9 +1115,18 @@ mod tests {
             loc("a.com"),
             "http://x".into(),
             false,
+            RemotePathMode::Replace,
         );
         let id = remote.map_remote[0].id;
-        let remote = upsert_map_remote(remote, Some(id), loc("a.com"), "http://y".into(), true);
+        let remote = upsert_map_remote(
+            remote,
+            Some(id),
+            loc("a.com"),
+            "http://y".into(),
+            true,
+            RemotePathMode::Prefix,
+        );
+        assert_eq!(remote.map_remote[0].path_mode, RemotePathMode::Prefix);
         assert_eq!(
             (
                 remote.map_remote[0].remote.as_str(),
@@ -1174,18 +1191,41 @@ mod tests {
             Some(parse_location("a.com").expect("ok")),
         );
         let id = on.throttle.as_ref().map(|t| t.id);
-        let custom = with_throttle_custom(on, 10_000, 2_000, 75);
+        let custom = with_throttle_custom(
+            on,
+            ThrottleValues {
+                down_bps: 10_000,
+                up_bps: 2_000,
+                latency_ms: 75,
+                loss_percent: 3,
+            },
+        );
         let t = custom.throttle.expect("throttle");
         assert_eq!(Some(t.id), id);
         assert_eq!(t.name, CUSTOM_THROTTLE);
         assert_eq!(
-            (t.down_bps, t.up_bps, t.latency_ms),
-            (Some(10_000), Some(2_000), 75)
+            (t.down_bps, t.up_bps, t.latency_ms, t.loss_percent),
+            (Some(10_000), Some(2_000), 75, 3)
         );
         assert_eq!(
             t.r#match.and_then(|m| m.host_glob).as_deref(),
             Some("a.com")
         );
+    }
+
+    #[test]
+    fn loss_presets_carry_their_drop_rate() {
+        let loss = |name: &str| {
+            THROTTLE_PRESETS
+                .iter()
+                .find(|p| p.name == name)
+                .map(|p| p.values.loss_percent)
+        };
+        assert_eq!(loss("100% Loss"), Some(100));
+        assert_eq!(loss("Very Bad Network"), Some(10));
+        assert_eq!(loss("3G"), Some(0));
+        let rules = with_throttle_preset(RuleSet::default(), &THROTTLE_PRESETS[3], None);
+        assert_eq!(rules.throttle.map(|t| t.loss_percent), Some(5));
     }
 
     #[test]

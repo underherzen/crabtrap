@@ -444,6 +444,7 @@ async fn map_remote_sends_request_to_other_origin() {
             r#match: match_host_path("127.0.0.1", Some("/v1/*")),
             remote: format!("http://{target}"),
             preserve_host: false,
+            path_mode: domain::entities::RemotePathMode::Replace,
             enabled: true,
         }],
         ..Default::default()
@@ -493,6 +494,7 @@ async fn throttle_adds_latency_limits_rate_and_tags_exchange() {
                 down_bps: Some(10_000),
                 up_bps: None,
                 latency_ms: 300,
+                loss_percent: 0,
                 r#match: Some(match_host_path("127.0.0.1", None)),
             }),
         })
@@ -522,6 +524,7 @@ async fn throttle_adds_latency_limits_rate_and_tags_exchange() {
                 down_bps: None,
                 up_bps: None,
                 latency_ms: 2_000,
+                loss_percent: 0,
                 r#match: Some(match_host_path("elsewhere.example", None)),
             }),
         })
@@ -612,5 +615,60 @@ async fn disabled_block_list_lets_requests_through() {
         .await
         .expect("response");
     assert_eq!((status, body.as_str()), (200, "from origin"));
+    cmd_tx.send(EngineCommand::Stop).await.ok();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn full_loss_drops_every_request_without_reaching_the_origin() {
+    use application::dto::rules::ThrottleSpecDto;
+
+    let (origin, hosts) = spawn_named_origin("origin").await;
+    let (engine, events, cmd_tx) = engine_with_rules(RuleSet::default()).await;
+    cmd_tx
+        .send(EngineCommand::UpdateThrottle {
+            spec: Some(ThrottleSpecDto {
+                name: "100% Loss".into(),
+                down_bps: None,
+                up_bps: None,
+                latency_ms: 0,
+                loss_percent: 100,
+                r#match: None,
+            }),
+        })
+        .await
+        .expect("send throttle");
+    // Команда применяется асинхронно: ждём первого оборванного запроса.
+    let deadline = tokio::time::Instant::now() + TEST_TIMEOUT;
+    while proxy_get(&engine, &format!("http://{origin}/warmup"))
+        .await
+        .is_some()
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "throttle never applied"
+        );
+    }
+    let reached = hosts.lock().expect("hosts").len();
+
+    let reply = proxy_get(&engine, &format!("http://{origin}/x")).await;
+
+    assert_eq!(reply, None, "connection closes without a response");
+    let error = wait_event(&events, |e| match e {
+        ProxyEvent::ExchangeFailed { error, .. } => Some(error.clone()),
+        _ => None,
+    })
+    .await;
+    assert!(error.contains("100% loss"), "{error}");
+    assert!(
+        events
+            .snapshot()
+            .iter()
+            .any(|e| matches!(e, ProxyEvent::ExchangeTagged { tag, .. } if tag == "dropped"))
+    );
+    assert_eq!(
+        hosts.lock().expect("hosts").len(),
+        reached,
+        "origin not reached"
+    );
     cmd_tx.send(EngineCommand::Stop).await.ok();
 }

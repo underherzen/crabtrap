@@ -2,8 +2,9 @@
 //! и область действия (весь трафик или location через диалог).
 
 use application::use_cases::rules::edit::{
-    CUSTOM_THROTTLE, THROTTLE_PRESETS, Tool, format_location, tool_enabled, with_throttle_custom,
-    with_throttle_preset, with_throttle_scope, with_tool_enabled,
+    CUSTOM_THROTTLE, THROTTLE_PRESETS, ThrottlePreset, ThrottleValues, Tool, format_location,
+    tool_enabled, with_throttle_custom, with_throttle_preset, with_throttle_scope,
+    with_tool_enabled,
 };
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Disableable as _;
@@ -30,26 +31,41 @@ fn bytes_to_kbps(bps: u64) -> u64 {
     bps * 8 / 1000
 }
 
-/// Свои значения из полей: `Err` — понятная ошибка.
-pub fn parse_custom(down: &str, up: &str, latency: &str) -> Result<(u64, u64, u64), String> {
+/// Свои значения из полей (`[down kbps, up kbps, latency ms, drop %]`;
+/// пустой drop — 0): `Err` — понятная ошибка.
+pub fn parse_custom(fields: [&str; 4]) -> Result<ThrottleValues, String> {
     let number = |name: &str, value: &str| {
         value
             .trim()
             .parse::<u64>()
             .map_err(|_| format!("{name}: enter a whole number"))
     };
+    let [down, up, latency, loss] = fields;
     let (down, up, latency) = (
         number("Download kbps", down)?,
         number("Upload kbps", up)?,
         number("Latency ms", latency)?,
     );
+    let loss = match loss.trim() {
+        "" => 0,
+        value => number("Drop %", value)?,
+    };
     if down == 0 || up == 0 {
         return Err("Bandwidth must be greater than 0 kbps".into());
     }
     if down > MAX_KBPS || up > MAX_KBPS {
         return Err(format!("Bandwidth must be at most {MAX_KBPS} kbps"));
     }
-    Ok((kbps_to_bytes(down), kbps_to_bytes(up), latency))
+    let loss_percent = u8::try_from(loss)
+        .ok()
+        .filter(|l| *l <= 100)
+        .ok_or("Drop % must be 0–100")?;
+    Ok(ThrottleValues {
+        down_bps: kbps_to_bytes(down),
+        up_bps: kbps_to_bytes(up),
+        latency_ms: latency,
+        loss_percent,
+    })
 }
 
 impl RulesScreen {
@@ -108,15 +124,12 @@ impl RulesScreen {
                 );
                 move |_, _, cx| {
                     let text = |i: &Entity<InputState>, cx: &App| i.read(cx).value().to_string();
-                    let parsed = parse_custom(
-                        &text(&inputs[0], cx),
-                        &text(&inputs[1], cx),
-                        &text(&inputs[2], cx),
-                    );
+                    let fields = inputs.each_ref().map(|i| text(i, cx));
+                    let parsed = parse_custom(fields.each_ref().map(String::as_str));
                     let error = match parsed {
-                        Ok((down, up, latency)) => {
+                        Ok(values) => {
                             RulesStore::apply(&store, cx, move |rules| {
-                                Ok(with_throttle_custom(rules, down, up, latency))
+                                Ok(with_throttle_custom(rules, values))
                             });
                             None
                         }
@@ -160,11 +173,15 @@ impl RulesScreen {
 
         let status = match &current {
             Some(t) => format!(
-                "{} — ↓ {} kbps  ↑ {} kbps  +{} ms",
+                "{} — ↓ {} kbps  ↑ {} kbps  +{} ms{}",
                 t.name,
                 t.down_bps.map(bytes_to_kbps).unwrap_or(0),
                 t.up_bps.map(bytes_to_kbps).unwrap_or(0),
-                t.latency_ms
+                t.latency_ms,
+                match t.loss_percent {
+                    0 => String::new(),
+                    loss => format!("  ✕ {loss}% dropped"),
+                }
             ),
             None => "No profile — pick a preset or enter custom values.".into(),
         };
@@ -175,7 +192,7 @@ impl RulesScreen {
             .gap(px(14.))
             .child(enable)
             .child(div().text_size(px(13.)).text_color(muted).child(
-                "Simulates a slow network: limits bandwidth both ways and adds latency to every request.",
+                "Simulates a slow network: limits bandwidth both ways, adds latency to every request and can drop a share of requests (the connection closes without a response).",
             ))
             .child(div().text_size(px(13.)).child(status))
             .child(section("Presets", div().flex().flex_wrap().gap(px(8.)).children(presets).into_any_element()))
@@ -193,6 +210,7 @@ impl RulesScreen {
                             .child(field("Download kbps", &self.throttle.down_kbps))
                             .child(field("Upload kbps", &self.throttle.up_kbps))
                             .child(field("Latency ms", &self.throttle.latency_ms))
+                            .child(field("Drop %", &self.throttle.loss_percent))
                             .child(apply),
                     )
                     .when_some(self.throttle_error.clone(), |el, err| {
@@ -214,26 +232,28 @@ impl RulesScreen {
             .into_any_element()
     }
 
-    fn throttle_inputs(&self) -> [Entity<InputState>; 3] {
+    fn throttle_inputs(&self) -> [Entity<InputState>; 4] {
         [
             self.throttle.down_kbps.clone(),
             self.throttle.up_kbps.clone(),
             self.throttle.latency_ms.clone(),
+            self.throttle.loss_percent.clone(),
         ]
     }
 }
 
 /// Пресет заполняет поля своих значений — их можно подправить и Apply.
 fn fill_inputs(
-    inputs: &[Entity<InputState>; 3],
-    preset: &application::use_cases::rules::edit::ThrottlePreset,
+    inputs: &[Entity<InputState>; 4],
+    preset: &ThrottlePreset,
     window: &mut gpui_kit::Window,
     cx: &mut App,
 ) {
     let values = [
-        bytes_to_kbps(preset.down_bps),
-        bytes_to_kbps(preset.up_bps),
-        preset.latency_ms,
+        bytes_to_kbps(preset.values.down_bps),
+        bytes_to_kbps(preset.values.up_bps),
+        preset.values.latency_ms,
+        preset.values.loss_percent.into(),
     ];
     for (input, value) in inputs.iter().zip(values) {
         input.update(cx, |state, cx| {
@@ -273,18 +293,32 @@ mod tests {
 
     #[test]
     fn custom_values_convert_kbps_to_bytes() {
-        assert_eq!(parse_custom("768", "384", "150"), Ok((96_000, 48_000, 150)));
+        assert_eq!(
+            parse_custom(["768", "384", "150", ""]),
+            Ok(ThrottleValues {
+                down_bps: 96_000,
+                up_bps: 48_000,
+                latency_ms: 150,
+                loss_percent: 0,
+            })
+        );
+        assert_eq!(
+            parse_custom(["768", "384", "150", " 5 "]).map(|v| v.loss_percent),
+            Ok(5)
+        );
     }
 
     #[test]
     fn custom_values_reject_garbage_and_zero() {
         assert!(
-            parse_custom("18446744073709551615", "1", "0").is_err(),
+            parse_custom(["18446744073709551615", "1", "0", ""]).is_err(),
             "no overflow"
         );
-        assert!(parse_custom("fast", "1", "0").is_err());
-        assert!(parse_custom("0", "1", "0").is_err());
-        assert!(parse_custom("1", "1", "-5").is_err());
+        assert!(parse_custom(["fast", "1", "0", ""]).is_err());
+        assert!(parse_custom(["0", "1", "0", ""]).is_err());
+        assert!(parse_custom(["1", "1", "-5", ""]).is_err());
+        assert!(parse_custom(["1", "1", "0", "101"]).is_err());
+        assert!(parse_custom(["1", "1", "0", "300"]).is_err());
     }
 
     #[test]

@@ -165,6 +165,7 @@ async fn request_script_edits_and_map_remote_sees_edited_url() {
             },
             remote: "https://staging.test".into(),
             preserve_host: false,
+            path_mode: domain::entities::RemotePathMode::Replace,
             enabled: true,
         }],
         ..Default::default()

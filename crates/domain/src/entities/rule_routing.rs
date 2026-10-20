@@ -290,6 +290,7 @@ mod tests {
             r#match: m,
             remote: "https://staging.example.com".into(),
             preserve_host: false,
+            path_mode: crate::entities::RemotePathMode::Replace,
             enabled: true,
         }
     }
@@ -403,6 +404,7 @@ mod tests {
                 down_bps: Some(1),
                 up_bps: None,
                 latency_ms: 0,
+                loss_percent: 0,
                 r#match: None,
             }),
             ..Default::default()
@@ -484,6 +486,7 @@ mod tests {
             down_bps: Some(1000),
             up_bps: None,
             latency_ms: 100,
+            loss_percent: 0,
             r#match: m,
         };
         let global = RuleSet {

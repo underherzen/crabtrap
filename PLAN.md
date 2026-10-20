@@ -497,8 +497,15 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
   - [x] валидация шаблонов в `UpdateRuleSetUseCase`; тесты `engine/tests/dns_spoof.rs`
   - [x] документация: раздел DNS Spoofing в `docs/guide.md`, README, CHANGELOG
   - [ ] ручная проверка в GUI — не делалась агентом
-- [ ] **P6. Map Remote/сеть** (~2 дня): маппинг префикса пути (`path_mode`), Map Remote для WS/WSS,
-      пресеты throttle с потерями
+- [x] **P6. Map Remote/сеть** (2026-10-20)
+  - [x] `MapRemoteRule.path_mode` (`Replace` по умолчанию | `Prefix`): ведущие сегменты пути, совпавшие с неизменными сегментами `path_glob`
+        (без `*`; `v1*` — только ровно `v1`) → путь цели; остаток сохраняется; нет совпадения — путь цели спереди
+  - [x] WS/WSS: рукопожатие идёт по маршруту Map Remote (тест `websocket.rs`); цели `ws://`/`wss://`
+        = `http(s)://` (валидация, форма); wss через MITM — тот же `forward`, отдельного теста нет
+  - [x] throttle: `loss_percent` (0–100) в профиле/DTO, обрыв после задержки (`fastrand`), тег
+        `dropped`; пресеты Lossy 3G, Very Bad Network, 100% Loss; поле Drop % в UI; `ThrottleValues`
+  - [x] документация: Map Remote и Throttle в `docs/guide.md`, CHANGELOG
+  - [ ] ручная проверка в GUI — не делалась агентом
 - [ ] **P7.** Крупное — по существующим фазам: Reverse Proxy (Phase 10), resend WS (Phase 11),
       сессии/mirror (Phase 8)
 

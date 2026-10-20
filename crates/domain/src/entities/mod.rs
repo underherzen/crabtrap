@@ -23,7 +23,8 @@ pub use network::{
 pub use rewrite::{ResponseFacts, RewriteTarget};
 pub use rule::{
     BlockAction, BlockRule, BreakPhase, BreakpointRule, MapLocalRule, MapRemoteRule,
-    RewriteLocation, RewriteOp, RewriteRule, RuleSet, SslProxyEntry, ThrottleProfile,
+    RemotePathMode, RewriteLocation, RewriteOp, RewriteRule, RuleSet, SslProxyEntry,
+    ThrottleProfile,
 };
 pub use rule_routing::{RequestFacts, RequestRoute};
 pub use script_rule::{ScriptPhase, ScriptRule};

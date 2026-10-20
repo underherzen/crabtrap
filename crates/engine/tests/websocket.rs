@@ -193,3 +193,65 @@ async fn stop_with_an_open_socket_settles_the_exchange() {
     .await;
     assert!(error.contains("aborted"), "{error}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn map_remote_sends_the_handshake_and_frames_to_the_target() {
+    let (origin, mut handshakes) = spawn_ws_origin().await;
+    let rules = domain::entities::rule::RuleSet {
+        map_remote: vec![domain::entities::rule::MapRemoteRule {
+            id: domain::value_objects::RuleId::new(),
+            r#match: domain::value_objects::TrafficMatch {
+                host_glob: Some("socket.crabtrap.test".into()),
+                ..Default::default()
+            },
+            remote: format!("ws://{origin}/v2"),
+            preserve_host: false,
+            path_mode: domain::entities::RemotePathMode::Replace,
+            enabled: true,
+        }],
+        ..Default::default()
+    };
+    let pipeline = std::sync::Arc::new(infrastructure::services::RulesInterceptionPipeline::new(
+        rules,
+    ));
+    let (engine, events, cmd_tx) = spawn_engine_with_pipeline(pipeline).await;
+
+    let mut client = TcpStream::connect(&engine).await.expect("connect");
+    client
+        .write_all(
+            b"GET http://socket.crabtrap.test/v1/chat HTTP/1.1\r\nHost: socket.crabtrap.test\r\n\
+              Upgrade: websocket\r\nConnection: Upgrade\r\n\
+              Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        )
+        .await
+        .expect("handshake");
+    let head = read_head_only(&mut client).await;
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    let seen = tokio::time::timeout(Duration::from_secs(5), handshakes.recv())
+        .await
+        .expect("origin handshake in time")
+        .expect("origin handshake");
+    assert!(seen.starts_with("GET /v2 "), "{seen}");
+    assert!(
+        seen.to_ascii_lowercase()
+            .contains(&format!("host: {origin}")),
+        "{seen}"
+    );
+
+    client
+        .write_all(&text_frame(b"hi", Some([7, 7, 7, 7])))
+        .await
+        .expect("send");
+    let expected = text_frame(b"echo: hi", None);
+    let mut reply = vec![0u8; expected.len()];
+    tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut reply))
+        .await
+        .expect("reply in time")
+        .expect("read");
+    assert_eq!(reply, expected);
+    wait_event(&events, |e| {
+        matches!(e, ProxyEvent::ExchangeTagged { tag, .. } if tag == "map-remote").then_some(())
+    })
+    .await;
+    cmd_tx.send(EngineCommand::Stop).await.ok();
+}

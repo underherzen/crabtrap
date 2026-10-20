@@ -137,6 +137,9 @@ pub struct ThrottleSpecDto {
     pub up_bps: Option<u64>,
     #[serde(default)]
     pub latency_ms: u64,
+    /// Доля обрываемых запросов, %.
+    #[serde(default)]
+    pub loss_percent: u8,
     #[serde(default)]
     pub r#match: Option<TrafficMatch>,
 }
@@ -149,6 +152,7 @@ impl ThrottleSpecDto {
             down_bps: p.down_bps,
             up_bps: p.up_bps,
             latency_ms: p.latency_ms,
+            loss_percent: p.loss_percent,
             r#match: p.r#match.clone(),
         }
     }

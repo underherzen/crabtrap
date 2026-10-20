@@ -327,7 +327,7 @@ impl RemoteTargetForm {
             .or_else(|| url::Url::parse(&format!("http://{remote}")).ok());
         match parsed {
             Some(u) => Self {
-                https: u.scheme() == "https",
+                https: matches!(u.scheme(), "https" | "wss"),
                 host: u.host_str().unwrap_or_default().to_string(),
                 port: u.port().map(|p| p.to_string()).unwrap_or_default(),
                 path: match u.path() {
