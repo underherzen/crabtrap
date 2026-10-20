@@ -154,6 +154,17 @@ fn validate(rules: &RuleSet) -> Result<(), DomainError> {
         }
     }
 
+    for entry in &rules.allow_list {
+        check_id(entry.id, "allow_list")?;
+        let pattern = entry.host_pattern.trim();
+        if pattern.is_empty() || pattern.contains(char::is_whitespace) {
+            return Err(DomainError::ValidationError(format!(
+                "allow_list entry {}: host pattern {:?} is empty or has spaces",
+                entry.id, entry.host_pattern
+            )));
+        }
+    }
+
     for rule in &rules.rewrite {
         check_id(rule.id, "rewrite")?;
         if rule.name.trim().is_empty() {
@@ -483,6 +494,17 @@ mod tests {
             validate(&rewrite).is_err(),
             "rewrite matches are checked too"
         );
+    }
+
+    #[test]
+    fn allow_list_hosts_are_validated() {
+        let with = |pattern: &str| RuleSet {
+            allow_list: vec![domain::entities::rule::AllowEntry::new(pattern)],
+            ..Default::default()
+        };
+        assert!(validate(&with("*.example.com")).is_ok());
+        assert!(validate(&with(" ")).is_err());
+        assert!(validate(&with("a b.com")).is_err());
     }
 
     #[test]

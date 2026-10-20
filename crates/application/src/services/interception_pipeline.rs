@@ -23,6 +23,8 @@ pub enum ConnectDecision {
     Passthrough,
     /// Отказать в соединении.
     Block,
+    /// Прозрачный туннель без записи — хост не в Allow List.
+    Bypass,
 }
 
 /// Куда дальше двигаться обмену после пайплайна.
@@ -190,4 +192,20 @@ pub trait InterceptionPipeline: Send + Sync {
     /// Решение пользователя по брейкпоинту (EngineCommand::ResolveIntercept).
     /// Пайплайны без брейкпоинтов игнорируют; обёртки передают внутрь.
     fn resolve_intercept(&self, _id: InterceptId, _resolution: InterceptResolutionDto) {}
+
+    /// Записывать ли трафик хоста и применять ли к нему пайплайн (Allow
+    /// List). `false` — движок проксирует обмен мимо: без событий, тел,
+    /// правил и throttle. Обёртки передают внутрь.
+    fn records_host(&self, _host: &str) -> bool {
+        true
+    }
+
+    /// Запрос хоста мимо записи (`records_host = false`): из правил
+    /// действует только Block List. По умолчанию — в origin как есть.
+    async fn on_bypassed_request(&self, context: InterceptContext) -> InterceptOutcome {
+        InterceptOutcome::Proceed {
+            message: context.message,
+            route: RouteDecision::Origin,
+        }
+    }
 }

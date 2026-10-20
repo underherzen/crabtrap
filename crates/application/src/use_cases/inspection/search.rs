@@ -352,6 +352,7 @@ mod tests {
             &self,
             _id: &ExchangeId,
             _head: domain::repositories::RequestHead,
+            _client_body: domain::entities::ClientBody,
         ) -> Result<(), DomainError> {
             Ok(())
         }

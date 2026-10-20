@@ -21,9 +21,10 @@ use application::use_cases::rules::response_form::map_local_header_error;
 use application::dto::capture::{Direction, ExchangeSummaryDto, ProxyEvent, TlsInfoDto};
 use application::services::{
     AbortMode, EventPublisher, InterceptContext, InterceptOutcome, InterceptableMessage,
-    RouteDecision,
+    InterceptionPipeline, RouteDecision,
 };
 use chrono::Utc;
+use domain::entities::ClientBody;
 use domain::entities::rule::BreakPhase;
 use domain::value_objects::http_vo::{HeaderEntry, Protocol};
 use domain::value_objects::{BodyId, ExchangeId};
@@ -33,6 +34,7 @@ use http::{Request, Response, Version};
 use http_body_util::BodyExt;
 
 use crate::body::{MonitoredBody, StreamEnd, StreamTracker};
+use crate::bypass::{BypassPipeline, SilentPublisher};
 use crate::commands::EngineState;
 use crate::exchange_timing::ExchangeTiming;
 use crate::http_proxy::{
@@ -63,6 +65,11 @@ struct ExchangeCtx {
     request: Option<InterceptableMessage>,
     /// Апгрейд клиента, если это WebSocket-рукопожатие (Phase 11b).
     client_upgrade: Option<hyper::upgrade::OnUpgrade>,
+    /// Обмен записывается (хост в Allow List или списка нет). Иначе —
+    /// мимо: события глушатся, тела не сохраняются, без правил и throttle.
+    recorded: bool,
+    /// Пайплайн обмена: настоящий или пустой (мимо записи).
+    pipeline: Arc<dyn InterceptionPipeline>,
 }
 
 /// Тег обмена, сообщение которого пайплайн изменил (скрипт, rewrite).
@@ -129,11 +136,12 @@ impl ProxyService {
             message: original,
             request: None,
         };
+        let pipeline = ctx.pipeline.clone();
         let loaded = self
-            .load_for_pipeline(&mut context, &parts.headers, boxed(body))
+            .load_for_pipeline(pipeline.as_ref(), &mut context, &parts.headers, boxed(body))
             .await;
         let seen = context.message.clone();
-        let (edited, route) = match self.state.pipeline.on_request(context).await {
+        let (edited, route) = match pipeline.on_request(context).await {
             InterceptOutcome::Proceed { message, route } => (message, route),
             InterceptOutcome::Abort { mode, tag } => {
                 if let Some(tag) = tag {
@@ -145,7 +153,8 @@ impl ProxyService {
         let edits = if edited != seen {
             publish_tag(&ctx, MODIFIED_TAG);
             let edits = apply_request(&mut parts, &seen, &edited);
-            publish_request_edited(&ctx, &parts);
+            let client_body = self.store_client_body(&seen, &edited).await;
+            publish_request_edited(&ctx, &parts, client_body);
             edits
         } else {
             RequestEdits::default()
@@ -163,7 +172,10 @@ impl ProxyService {
         }
         ctx.request = Some(edited);
 
-        let throttle = self.active_throttle(&uri, &method).await;
+        let throttle = match ctx.recorded {
+            true => self.active_throttle(&uri, &method).await,
+            false => None,
+        };
         if let Some(spec) = &throttle {
             ctx.events.publish(ProxyEvent::ExchangeTagged {
                 id: ctx.id,
@@ -264,13 +276,57 @@ impl ProxyService {
 
     /// Собрать тело для пайплайна, если он его просит; `context.message.body`
     /// получает байты загруженного тела.
+    /// Тело клиента, если пайплайн его заменил: записанное тело обмена —
+    /// отправленное, а Repeat повторяет запрос клиента. Исходное не было
+    /// загружено (пайплайн заменил поток), запись тел выключена или
+    /// хранилище отказало — `Lost`: Repeat откажет, а не подставит правку.
+    async fn store_client_body(
+        &self,
+        seen: &InterceptableMessage,
+        edited: &InterceptableMessage,
+    ) -> ClientBody {
+        if edited.body == seen.body {
+            return ClientBody::Unchanged;
+        }
+        let Some(original) = seen.body.as_ref() else {
+            return ClientBody::Lost;
+        };
+        if !self.state.record_bodies.load(Ordering::Relaxed) {
+            return ClientBody::Lost;
+        }
+        let header = |name: &str| {
+            seen.headers
+                .iter()
+                .find(|h| h.name.eq_ignore_ascii_case(name))
+                .map(|h| h.value.clone())
+        };
+        let descriptor = domain::entities::body::BodyDescriptor {
+            size: original.len() as u64,
+            content_type: header("content-type"),
+            encoding: header("content-encoding"),
+        };
+        match self
+            .state
+            .bodies
+            .put(BodyId::new(), original.clone(), descriptor)
+            .await
+        {
+            Ok(body) => ClientBody::Stored(body),
+            Err(error) => {
+                tracing::warn!(%error, "client request body not stored, Repeat will refuse");
+                ClientBody::Lost
+            }
+        }
+    }
+
     async fn load_for_pipeline(
         &self,
+        pipeline: &dyn InterceptionPipeline,
         context: &mut InterceptContext,
         headers: &HeaderMap<HeaderValue>,
         body: PipeBody,
     ) -> Loaded {
-        if !self.state.pipeline.wants_body(context) {
+        if !pipeline.wants_body(context) {
             return Loaded::Streaming(body);
         }
         let loaded = load(body, headers, self.state.intercept_body_cap_bytes).await;
@@ -288,6 +344,13 @@ impl ProxyService {
         method: &http::Method,
         websocket: bool,
     ) -> ExchangeCtx {
+        // Хост не в Allow List — обмен мимо записи. Repeat / Compose —
+        // явное действие пользователя: записываются всегда.
+        let recorded = self.origin != domain::entities::exchange::RequestOrigin::Client
+            || self
+                .state
+                .pipeline
+                .records_host(uri.host().unwrap_or_default());
         let id = ExchangeId::new();
         let path = uri
             .path_and_query()
@@ -297,7 +360,10 @@ impl ProxyService {
         let tls_mitm = self.mitm.as_ref().map(|_| true);
         let mitm_tls_ms = self.mitm.as_ref().map(|m| m.tls_ms);
         let tls = self.mitm.as_ref().map(|m| TlsInfoDto::from(m.tls.clone()));
-        let events = self.state.events.clone();
+        let events: Arc<dyn EventPublisher> = match recorded {
+            true => self.state.events.clone(),
+            false => Arc::new(SilentPublisher),
+        };
         events.publish(ProxyEvent::ExchangeStarted {
             exchange: ExchangeSummaryDto {
                 id,
@@ -335,6 +401,13 @@ impl ProxyService {
             down_bps: None,
             request: None,
             client_upgrade: None,
+            recorded,
+            pipeline: match recorded {
+                true => self.state.pipeline.clone(),
+                false => Arc::new(BypassPipeline {
+                    inner: self.state.pipeline.clone(),
+                }),
+            },
         }
     }
 
@@ -431,11 +504,17 @@ impl ProxyService {
             ),
             request: ctx.request.take(),
         };
+        let pipeline = ctx.pipeline.clone();
         let loaded = self
-            .load_for_pipeline(&mut context, &resp_parts.headers, boxed(resp_body))
+            .load_for_pipeline(
+                pipeline.as_ref(),
+                &mut context,
+                &resp_parts.headers,
+                boxed(resp_body),
+            )
             .await;
         let seen = context.message.clone();
-        let edited = match self.state.pipeline.on_response(context).await {
+        let edited = match pipeline.on_response(context).await {
             InterceptOutcome::Proceed { message, .. } => message,
             InterceptOutcome::Abort { mode, .. } => {
                 // Ответ origin уже был — он виден в трафике, как до пайплайна.
@@ -498,7 +577,11 @@ fn merge_cookies(headers: &mut HeaderMap<HeaderValue>) {
 }
 
 /// Итоговый запрос после правок пайплайна — в трафик.
-fn publish_request_edited(ctx: &ExchangeCtx, parts: &http::request::Parts) {
+fn publish_request_edited(
+    ctx: &ExchangeCtx,
+    parts: &http::request::Parts,
+    client_body: ClientBody,
+) {
     ctx.events.publish(ProxyEvent::RequestEdited {
         id: ctx.id,
         method: parts.method.as_str().to_string(),
@@ -508,6 +591,7 @@ fn publish_request_edited(ctx: &ExchangeCtx, parts: &http::request::Parts) {
             .path_and_query()
             .map_or_else(|| "/".to_string(), |pq| pq.as_str().to_string()),
         headers: header_dtos(&parts.headers),
+        client_body,
     });
 }
 
@@ -604,7 +688,9 @@ fn request_tracker(
             bytes_so_far: sofar,
         });
     });
-    set_tee(state, &tracker, descriptor);
+    if ctx.recorded {
+        set_tee(state, &tracker, descriptor);
+    }
     tracker
 }
 
@@ -646,7 +732,9 @@ fn response_tracker(
             bytes_so_far: sofar,
         });
     });
-    set_tee(state, &tracker, descriptor);
+    if ctx.recorded {
+        set_tee(state, &tracker, descriptor);
+    }
     tracker
 }
 

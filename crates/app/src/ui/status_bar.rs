@@ -6,6 +6,7 @@
 
 use application::dto::capture::ProxyEvent;
 use chrono::{DateTime, Utc};
+use domain::entities::rule::RuleSet;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{App, Entity, IntoElement, ParentElement, RenderOnce, Styled, Window, div, px};
 
@@ -110,6 +111,17 @@ pub fn proxy_warning(indicator: &ProxyIndicator, listening: bool) -> Option<&'st
         .then_some("macOS proxy points to crabtrap, but the proxy is stopped")
 }
 
+/// Allow List действует — записывается не весь трафик: подпись или None.
+pub fn allow_list_note(rules: &RuleSet) -> Option<String> {
+    rules.allow_list_active().then(|| {
+        let hosts = rules.allow_list.iter().filter(|e| e.enabled).count();
+        format!(
+            "Allow List: recording {} only",
+            plural(hosts, "host", "hosts")
+        )
+    })
+}
+
 /// «1 connection» / «3 connections».
 pub fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
@@ -130,6 +142,8 @@ impl RenderOnce for StatusBar {
             &self.system_proxy.read(cx).indicator(),
             store.listening.is_some(),
         );
+        let allow_note = crate::ui::rules::window::store(cx)
+            .and_then(|rules| allow_list_note(&rules.read(cx).rules));
         let traffic = self.traffic.read(cx);
         let stats = traffic.stats;
         let (exchanges, seen) =
@@ -160,6 +174,17 @@ impl RenderOnce for StatusBar {
                         .child(warning),
                 )
             })
+            .when_some(allow_note, |this, note| {
+                this.child(separator()).child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .text_color(p.tone(ToneName::Orange).fg)
+                        .child(dot(p.tone(ToneName::Orange).fg, 6.))
+                        .child(note),
+                )
+            })
             .child(div().flex_1())
             .child(plural(store.active_conns, "connection", "connections"))
             .child(separator())
@@ -182,6 +207,26 @@ impl RenderOnce for StatusBar {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn allow_list_note_only_while_the_list_filters() {
+        use domain::entities::rule::AllowEntry;
+        assert_eq!(allow_list_note(&RuleSet::default()), None);
+        let rules = RuleSet {
+            allow_enabled: true,
+            allow_list: vec![AllowEntry::new("a.test"), AllowEntry::new("b.test")],
+            ..RuleSet::default()
+        };
+        assert_eq!(
+            allow_list_note(&rules).as_deref(),
+            Some("Allow List: recording 2 hosts only")
+        );
+        let off = RuleSet {
+            allow_enabled: false,
+            ..rules
+        };
+        assert_eq!(allow_list_note(&off), None);
+    }
 
     #[test]
     fn human_bytes_scales() {

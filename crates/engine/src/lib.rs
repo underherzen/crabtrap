@@ -8,6 +8,7 @@
 //! Точка входа: [`run`]; headless-бинарь — `crabtrapd`.
 
 mod body;
+mod bypass;
 mod client;
 mod commands;
 mod connect;

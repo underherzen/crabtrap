@@ -57,6 +57,7 @@ gpui_kit::actions!(
         InspectorBottom,
         InspectorRight,
         OpenSslProxyingTool,
+        OpenAllowList,
         OpenBlockList,
         OpenMapLocal,
         OpenMapRemote,
@@ -88,6 +89,7 @@ pub struct MenuState {
 fn tool_action(tab: RulesTab) -> Box<dyn Action> {
     match tab {
         RulesTab::SslProxying => Box::new(OpenSslProxyingTool),
+        RulesTab::AllowList => Box::new(OpenAllowList),
         RulesTab::BlockList => Box::new(OpenBlockList),
         RulesTab::MapLocal => Box::new(OpenMapLocal),
         RulesTab::MapRemote => Box::new(OpenMapRemote),
@@ -213,6 +215,7 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
         KeyBinding::new("alt-cmd-p", OpenSslProxyingTool, None),
+        KeyBinding::new("alt-cmd-a", OpenAllowList, None),
         KeyBinding::new("alt-cmd-b", OpenBlockList, None),
         KeyBinding::new("alt-cmd-l", OpenMapLocal, None),
         KeyBinding::new("alt-cmd-r", OpenMapRemote, None),
@@ -387,6 +390,11 @@ fn register_handlers(deps: &AppMenuDeps, cx: &mut App) {
     ));
     on_deferred!(OpenSslProxyingTool, |cx| rules_window::open(
         RulesTab::SslProxying,
+        None,
+        cx
+    ));
+    on_deferred!(OpenAllowList, |cx| rules_window::open(
+        RulesTab::AllowList,
         None,
         cx
     ));

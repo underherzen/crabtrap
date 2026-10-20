@@ -44,6 +44,7 @@ use store::RulesStore;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RulesTab {
     SslProxying,
+    AllowList,
     BlockList,
     MapLocal,
     MapRemote,
@@ -54,8 +55,9 @@ pub enum RulesTab {
 }
 
 impl RulesTab {
-    pub const ALL: [RulesTab; 8] = [
+    pub const ALL: [RulesTab; 9] = [
         RulesTab::SslProxying,
+        RulesTab::AllowList,
         RulesTab::BlockList,
         RulesTab::MapLocal,
         RulesTab::MapRemote,
@@ -69,6 +71,7 @@ impl RulesTab {
     pub fn tool(self) -> Tool {
         match self {
             RulesTab::SslProxying => Tool::SslProxying,
+            RulesTab::AllowList => Tool::AllowList,
             RulesTab::BlockList => Tool::BlockList,
             RulesTab::MapLocal => Tool::MapLocal,
             RulesTab::MapRemote => Tool::MapRemote,
@@ -82,6 +85,7 @@ impl RulesTab {
     pub fn icon(self) -> AppIcon {
         match self {
             RulesTab::SslProxying => AppIcon::ShieldCheck,
+            RulesTab::AllowList => AppIcon::Funnel,
             RulesTab::BlockList => AppIcon::Ban,
             RulesTab::MapLocal => AppIcon::FolderOpen,
             RulesTab::MapRemote => AppIcon::Globe,
@@ -95,6 +99,7 @@ impl RulesTab {
     pub fn label(self) -> &'static str {
         match self {
             RulesTab::SslProxying => "SSL Proxying",
+            RulesTab::AllowList => "Allow List",
             RulesTab::BlockList => "Block List",
             RulesTab::MapLocal => "Map Local",
             RulesTab::MapRemote => "Map Remote",

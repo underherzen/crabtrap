@@ -12,6 +12,7 @@ use application::services::{
     ConnectDecision, InterceptContext, InterceptOutcome, InterceptionPipeline, RouteDecision,
 };
 use async_trait::async_trait;
+use domain::entities::ClientBody;
 use domain::value_objects::Host;
 use domain::value_objects::http_vo::HeaderEntry;
 use engine::EngineConfig;
@@ -226,12 +227,22 @@ async fn request_header_and_uri_edits_reach_origin() {
     );
     wait_completed(&events).await;
     assert!(has_tag(&events.snapshot(), "modified"));
-    let (method, path) = wait_event(&events, |e| match e {
-        ProxyEvent::RequestEdited { method, path, .. } => Some((method.clone(), path.clone())),
+    let (method, path, client_body) = wait_event(&events, |e| match e {
+        ProxyEvent::RequestEdited {
+            method,
+            path,
+            client_body,
+            ..
+        } => Some((method.clone(), path.clone(), client_body.clone())),
         _ => None,
     })
     .await;
     assert_eq!((method.as_str(), path.as_str()), ("PUT", "/b?y=2"));
+    assert_eq!(
+        client_body,
+        ClientBody::Unchanged,
+        "body untouched — nothing extra stored"
+    );
     cmd_tx.send(EngineCommand::Stop).await.ok();
 }
 
@@ -279,6 +290,18 @@ async fn request_body_is_loaded_and_replaced_with_fixed_length() {
         Some(&b"hello"[..])
     );
     wait_completed(&events).await;
+    let client_body = wait_event(&events, |e| match e {
+        ProxyEvent::RequestEdited { client_body, .. } => Some(client_body.clone()),
+        _ => None,
+    })
+    .await;
+    let ClientBody::Stored(client_body) = client_body else {
+        panic!("the client's body is kept for Repeat, got {client_body:?}");
+    };
+    assert_eq!(
+        client_body.size, 5,
+        "the original \"hello\", not the edited body"
+    );
     cmd_tx.send(EngineCommand::Stop).await.ok();
 }
 

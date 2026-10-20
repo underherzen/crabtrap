@@ -472,8 +472,16 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
   - [x] документация: раздел Export в `docs/guide.md`, README, CHANGELOG
   - [ ] Import HAR — вместе с сессиями (Phase 8)
   - [ ] ручная проверка в GUI и открытие HAR в Chrome DevTools — не делалась агентом
-- [ ] **P4. Allow List** (~1,5 дня): `allow_list` + `allow_enabled`; несовпавшее — в обход без записи
-      (HTTPS — passthrough на CONNECT, HTTP — без ExchangeStarted); индикатор в тулбаре
+- [x] **P4. Allow List** (2026-10-20)
+  - [x] домен: `AllowEntry`, `RuleSet.allow_list`/`allow_enabled` (старый rules.json — выключен),
+        `records_host` (действует только при ≥1 активном хосте), общий `host_pattern_matches` с SSL
+  - [x] порт: `InterceptionPipeline::records_host`, `ConnectDecision::Bypass`; обёртки делегируют
+  - [x] движок: CONNECT вне списка — туннель без записи (`SilentPublisher`), HTTP — обычный путь, но
+        `BypassPipeline` + без событий/tee/throttle; Block List важнее; Repeat/Compose пишутся всегда
+  - [x] UI: вкладка Tools → Allow List (⌥⌘A), «Allow Only <host>» в контекстном меню, пометка в строке
+        состояния; валидация шаблонов
+  - [x] документация: раздел Allow List в `docs/guide.md`, README, CHANGELOG
+  - [ ] ручная проверка в GUI — не делалась агентом
 - [ ] **P5. DNS Spoofing** (~1 день): движок готов — сохранение в `RuleSet`, `SetDnsOverrides` на
       старте/изменении, glob-хосты, тег `dns-spoofed`, вкладка в Tools
 - [ ] **P6. Map Remote/сеть** (~2 дня): маппинг префикса пути (`path_mode`), Map Remote для WS/WSS,

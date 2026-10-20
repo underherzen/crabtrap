@@ -389,6 +389,7 @@ fn main() {
                         },
                         cx,
                     );
+                    let rules_for_root = rules_store.clone();
                     ui::rules::window::install(rules_store, cx);
                     ui::settings::install(
                         ui::settings::SettingsDeps {
@@ -424,6 +425,14 @@ fn main() {
                             sidebar,
                         )
                     });
+                    // Индикатор Allow List в строке состояния — по правкам правил.
+                    {
+                        let view = view.downgrade();
+                        cx.observe(&rules_for_root, move |_, cx| {
+                            let _ = view.update(cx, |_, cx| cx.notify());
+                        })
+                        .detach();
+                    }
                     ui::app_menu::install(
                         ui::app_menu::AppMenuDeps {
                             state: state_for_window.clone(),

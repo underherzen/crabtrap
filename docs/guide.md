@@ -5,6 +5,7 @@ How to inspect and change traffic with crabtrap. For installation and first laun
 
 - [Matching rules](#matching-rules)
 - [SSL Proxying](#ssl-proxying)
+- [Allow List](#allow-list)
 - [Map Local](#map-local)
 - [Map Remote](#map-remote)
 - [Block List](#block-list)
@@ -105,6 +106,26 @@ How entries match:
 - An **exclude** entry always beats an include entry.
 - Apple hosts that use certificate pinning (`*.apple.com`, `*.icloud.com` and others) are excluded
   by default, so system services keep working.
+
+## Allow List
+
+Records **only** the hosts on the list. Everything else still goes through crabtrap, but it is not
+recorded and nothing is applied to it: no rules, no decryption, no throttling. It works like
+Proxyman's Allow List and keeps the traffic table focused on the app you are debugging.
+
+- Add hosts in **Tools → Allow List** (⌥⌘A), or right-click a request → **Allow Only <host>**,
+  which also turns the list on.
+- Patterns work like in SSL Proxying: `api.example.com`, or `*.example.com`, which also matches
+  `example.com` itself.
+- The list is in effect only while **Enable Allow List** is on **and** at least one host is
+  enabled. An empty list never hides your traffic.
+- While it is in effect, the status bar shows **Allow List: recording N hosts only**.
+- **Block List** still applies to every host. A blocked host stays blocked even if it is not on
+  the Allow List. Blocked HTTPS connections still show up as a `403` row.
+- New requests you send with **Compose** are always recorded, whatever the host.
+- Changes apply to **new connections**. A tunnel or decrypted connection that is already open
+  keeps its state until the client reconnects.
+- The status bar's connection count includes connections that are not recorded.
 
 ## Map Local
 
@@ -267,10 +288,16 @@ Rows are tagged `throttled`.
 ## Repeat, Edit & Resend, Compose
 
 Right-click a request:
-- **Repeat** (⌃R) sends it again exactly as captured. Rules, scripts and breakpoints apply again.
-  It refuses if the request body was not fully captured.
-- **Edit & Resend…** opens the request in **Compose**, where you can change method, URL, headers
-  and body, then press ⌘↩.
+- **Repeat** (⌃R) sends the request again **as the client sent it**: the original headers and
+  body, even if Rewrite, a script or a breakpoint changed them. Rules then apply once, not on top
+  of their earlier result.
+  - It refuses if the request body was not fully captured.
+  - It also refuses if a rule changed the body and the client's original was not kept: it was no
+    longer stored, body recording is off, or the rule replaced a body crabtrap never loaded.
+    Edit & Resend still works and starts from the body that was sent.
+- **Edit & Resend…** opens the client's request in **Compose**, where you can change method, URL,
+  headers and body, then press ⌘↩. If the original body is gone, the form starts from the body
+  that was sent.
 
 Repeated and composed requests show up in the traffic table, tagged `repeated` or `composed`.
 

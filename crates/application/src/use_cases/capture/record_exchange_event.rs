@@ -84,17 +84,20 @@ impl RecordExchangeEventUseCase {
                 method,
                 uri,
                 headers,
+                client_body,
                 ..
             } => {
                 let head = RequestHead {
                     method: Method::new(&method),
                     uri,
                     headers: headers.into_iter().map(HeaderEntry::from).collect(),
+                    body: None,
+                    body_lost: false,
                 };
                 self.soften_missing(
                     id,
                     self.exchange_repository
-                        .update_request_head(&id, head)
+                        .update_request_head(&id, head, client_body)
                         .await,
                 )
             }
@@ -326,6 +329,7 @@ mod tests {
             &self,
             id: &ExchangeId,
             head: domain::repositories::RequestHead,
+            _client_body: domain::entities::ClientBody,
         ) -> Result<(), DomainError> {
             let mut guard = self.exchanges.lock().expect("lock");
             let ex = guard
@@ -774,6 +778,7 @@ mod tests {
                 name: "x-script".into(),
                 value: "1".into(),
             }],
+            client_body: Default::default(),
         }))
         .expect("edited");
         let stored = run(repo.get(&id)).expect("get").expect("exchange");

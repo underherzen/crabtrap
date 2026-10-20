@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use domain::DomainError;
 use domain::entities::rule::{
-    BlockAction, BlockRule, BreakPhase, BreakpointRule, DEFAULT_MAP_LOCAL_STATUS, MapLocalRule,
-    MapRemoteRule, RewriteLocation, RewriteOp, RewriteRule, RuleSet, SslProxyEntry,
+    AllowEntry, BlockAction, BlockRule, BreakPhase, BreakpointRule, DEFAULT_MAP_LOCAL_STATUS,
+    MapLocalRule, MapRemoteRule, RewriteLocation, RewriteOp, RewriteRule, RuleSet, SslProxyEntry,
     ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
@@ -272,6 +272,56 @@ pub fn upsert_ssl_host(
     })
 }
 
+/// Хост Allow List: новый или правка существующего.
+pub fn upsert_allow_host(
+    rules: RuleSet,
+    id: Option<RuleId>,
+    location: &str,
+) -> Result<RuleSet, DomainError> {
+    let host = location_host(location)?;
+    Ok(RuleSet {
+        allow_list: upsert(
+            rules.allow_list,
+            id,
+            |r| r.id,
+            |old| AllowEntry {
+                id: old.map(|o| o.id).unwrap_or_else(RuleId::new),
+                host_pattern: host,
+                enabled: old.is_none_or(|o| o.enabled),
+            },
+        ),
+        ..rules
+    })
+}
+
+/// «Allow only <host>» (правый клик в трафике): хост — в Allow List (есть —
+/// включается, без дублей), список — включён.
+pub fn with_host_allowed(rules: RuleSet, location: &str) -> Result<RuleSet, DomainError> {
+    let host = location_host(location)?;
+    let exists = rules.allow_list.iter().any(|e| e.host_pattern == host);
+    let allow_list = rules
+        .allow_list
+        .into_iter()
+        .map(|e| AllowEntry {
+            enabled: e.enabled || e.host_pattern == host,
+            ..e
+        })
+        .chain((!exists).then(|| AllowEntry::new(host.clone())))
+        .collect();
+    Ok(RuleSet {
+        allow_enabled: true,
+        allow_list,
+        ..rules
+    })
+}
+
+/// Хост из локации (`https://API.com:8443/v1` → `api.com`; пусто — `*`).
+fn location_host(location: &str) -> Result<String, DomainError> {
+    Ok(parse_location(location)?
+        .host_glob
+        .unwrap_or_else(|| "*".to_string()))
+}
+
 /// Копия правила (новый id) сразу после оригинала.
 pub fn with_rule_duplicated(rules: RuleSet, id: RuleId) -> RuleSet {
     fn dup<T: Clone>(
@@ -353,6 +403,15 @@ pub fn with_rule_duplicated(rules: RuleSet, id: RuleId) -> RuleSet {
                 ..r
             },
         ),
+        allow_list: dup(
+            rules.allow_list,
+            id,
+            |r| r.id,
+            |r| AllowEntry {
+                id: RuleId::new(),
+                ..r
+            },
+        ),
         ..rules
     }
 }
@@ -361,6 +420,7 @@ pub fn with_rule_duplicated(rules: RuleSet, id: RuleId) -> RuleSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     SslProxying,
+    AllowList,
     BlockList,
     MapLocal,
     MapRemote,
@@ -373,6 +433,7 @@ pub enum Tool {
 pub fn tool_enabled(rules: &RuleSet, tool: Tool) -> bool {
     match tool {
         Tool::SslProxying => rules.ssl_proxy_enabled,
+        Tool::AllowList => rules.allow_enabled,
         Tool::BlockList => rules.blocks_enabled,
         Tool::MapLocal => rules.map_local_enabled,
         Tool::MapRemote => rules.map_remote_enabled,
@@ -386,6 +447,10 @@ pub fn tool_enabled(rules: &RuleSet, tool: Tool) -> bool {
 pub fn with_tool_enabled(rules: RuleSet, tool: Tool, enabled: bool) -> RuleSet {
     match tool {
         Tool::SslProxying => rules.with_ssl_proxying(enabled),
+        Tool::AllowList => RuleSet {
+            allow_enabled: enabled,
+            ..rules
+        },
         Tool::BlockList => RuleSet {
             blocks_enabled: enabled,
             ..rules
@@ -487,6 +552,11 @@ pub fn without_rule(rules: RuleSet, id: RuleId) -> RuleSet {
             .filter(|r| r.id != id)
             .collect(),
         scripts: rules.scripts.into_iter().filter(|r| r.id != id).collect(),
+        allow_list: rules
+            .allow_list
+            .into_iter()
+            .filter(|r| r.id != id)
+            .collect(),
         ..rules
     }
 }
@@ -590,6 +660,14 @@ pub fn with_rule_toggled(rules: RuleSet, id: RuleId) -> RuleSet {
                 } else {
                     r
                 }
+            })
+            .collect(),
+        allow_list: rules
+            .allow_list
+            .into_iter()
+            .map(|r| AllowEntry {
+                enabled: r.enabled != (r.id == id),
+                ..r
             })
             .collect(),
         ..rules
@@ -713,7 +791,41 @@ pub fn without_throttle(rules: RuleSet) -> RuleSet {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+
+    #[test]
+    fn allow_host_is_added_once_and_turns_the_list_on() {
+        let rules = with_host_allowed(RuleSet::default(), "https://API.com:8443/v1").expect("ok");
+        assert!(rules.allow_enabled);
+        assert_eq!(rules.allow_list.len(), 1);
+        assert_eq!(rules.allow_list[0].host_pattern, "api.com");
+
+        let disabled = with_rule_toggled(rules.clone(), rules.allow_list[0].id);
+        let again = with_host_allowed(disabled, "api.com").expect("ok");
+        assert_eq!(again.allow_list.len(), 1, "no duplicates");
+        assert!(again.allow_list[0].enabled, "existing entry is re-enabled");
+    }
+
+    #[test]
+    fn allow_entries_take_part_in_generic_rule_edits() {
+        let rules = upsert_allow_host(RuleSet::default(), None, "*.example.com").expect("ok");
+        let id = rules.allow_list[0].id;
+        let edited = upsert_allow_host(rules, Some(id), "cdn.example.com").expect("ok");
+        assert_eq!(edited.allow_list.len(), 1);
+        assert_eq!(edited.allow_list[0].host_pattern, "cdn.example.com");
+
+        let toggled = with_rule_toggled(edited.clone(), id);
+        assert!(!toggled.allow_list[0].enabled);
+        let copied = with_rule_duplicated(edited.clone(), id);
+        assert_eq!(copied.allow_list.len(), 2);
+        assert_ne!(copied.allow_list[1].id, id);
+        assert!(without_rule(edited, id).allow_list.is_empty());
+
+        let on = with_tool_enabled(RuleSet::default(), Tool::AllowList, true);
+        assert!(tool_enabled(&on, Tool::AllowList));
+        assert!(!tool_enabled(&RuleSet::default(), Tool::AllowList));
+    }
 
     #[test]
     fn parses_host_only_and_wildcards() {

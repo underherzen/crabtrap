@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use domain::entities::exchange::{HttpExchange, RequestOrigin};
+use domain::entities::exchange::{HttpExchange, RequestHead, RequestOrigin};
 use domain::errors::DomainError;
 use domain::repositories::{BodyRepository, ExchangeRepository};
 use domain::value_objects::ExchangeId;
@@ -32,13 +32,22 @@ impl RepeatExchangeUseCase {
         }
     }
 
-    /// Повторить обмен: запрос, каким его прислал клиент (правила,
-    /// скрипты и брейкпоинты применятся заново), тело — захваченные байты.
-    /// Тело захвачено не полностью — отказ, а не урезанный повтор.
+    /// Повторить обмен: запрос, каким его прислал клиент — голова и тело
+    /// (правила, скрипты и брейкпоинты применятся заново, а не поверх уже
+    /// применённых). Тело захвачено не полностью — отказ, а не урезанный
+    /// повтор.
     pub async fn repeat(&self, id: &ExchangeId) -> Result<SendResultDto, DomainError> {
-        let (exchange, body) = self.load(id).await?;
-        check_body_complete(&exchange, body.as_deref())?;
-        let head = exchange.replay_head();
+        let (exchange, head, body) = self.load(id).await?;
+        match (client_body_edited(&exchange), &body) {
+            (false, _) => check_body_complete(&exchange, body.as_deref())?,
+            // Отправить вместо тела клиента изменённое — повторить правку дважды.
+            (true, None) => {
+                return Err(DomainError::ValidationError(
+                    "a rule changed this request's body and the original isn't stored — use Edit & Resend".into(),
+                ));
+            }
+            (true, Some(_)) => {}
+        }
         let request = ComposedRequestDto {
             method: head.method.to_string(),
             url: head.uri,
@@ -50,26 +59,45 @@ impl RepeatExchangeUseCase {
     }
 
     /// Форма Compose из обмена (Edit & Resend): исходный запрос клиента.
+    /// Тело клиента вытеснено из хранилища — форма с отправленным телом
+    /// (его можно поправить руками).
     pub async fn edit_form(&self, id: &ExchangeId) -> Result<ComposeForm, DomainError> {
-        let (exchange, body) = self.load(id).await?;
-        Ok(ComposeForm::from_head(
-            &exchange.replay_head(),
-            body.as_deref(),
-        ))
+        let (exchange, head, body) = self.load(id).await?;
+        let body = match (body, &exchange.request.body) {
+            (Some(body), _) => Some(body),
+            (None, Some(sent)) => self.bodies.get(sent).await?,
+            (None, None) => None,
+        };
+        Ok(ComposeForm::from_head(&head, body.as_deref()))
     }
 
-    async fn load(&self, id: &ExchangeId) -> Result<(HttpExchange, Option<Vec<u8>>), DomainError> {
+    /// Обмен, запрос клиента и тело этого запроса (`None` — нет или уже
+    /// не хранится).
+    async fn load(
+        &self,
+        id: &ExchangeId,
+    ) -> Result<(HttpExchange, RequestHead, Option<Vec<u8>>), DomainError> {
         let exchange = self
             .exchanges
             .get(id)
             .await?
             .ok_or_else(|| DomainError::NotFound(format!("exchange {id}")))?;
-        let body = match &exchange.request.body {
+        let head = exchange.replay_head();
+        let body = match &head.body {
             Some(body) => self.bodies.get(body).await?,
             None => None,
         };
-        Ok((exchange, body))
+        Ok((exchange, head, body))
     }
+}
+
+/// Пайплайн изменил тело — у клиента было своё (сохранённое или
+/// потерянное), отправленное за него выдавать нельзя.
+fn client_body_edited(exchange: &HttpExchange) -> bool {
+    exchange
+        .client_request
+        .as_ref()
+        .is_some_and(|client| client.body.is_some() || client.body_lost)
 }
 
 /// Захвачено ли тело запроса целиком: объявленная длина / размер по

@@ -10,7 +10,7 @@
 
 use application::dto::capture::ExchangeSummaryDto;
 use application::use_cases::export::HarScope;
-use application::use_cases::rules::edit::with_ssl_host_enabled;
+use application::use_cases::rules::edit::{with_host_allowed, with_ssl_host_enabled};
 use application::use_cases::rules::location_form::LocationForm;
 use gpui_kit::ClipboardItem;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
@@ -81,6 +81,15 @@ pub fn exchange_menu(menu: PopupMenu, summary: &ExchangeSummaryDto, pinned: bool
                 .on_click(move |_, _, cx| scripting_window::open_new(prefill.clone(), cx))
         })
         .separator()
+        .item({
+            let host = host.clone();
+            PopupMenuItem::new(format!("Allow Only {host}")).on_click(move |_, _, cx| {
+                if let Some(store) = rules_window::store(cx) {
+                    let host = host.clone();
+                    RulesStore::apply(&store, cx, move |rules| with_host_allowed(rules, &host));
+                }
+            })
+        })
         .item(
             PopupMenuItem::new(format!("Enable SSL Proxying for {host}")).on_click(
                 move |_, _, cx| {

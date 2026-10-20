@@ -28,7 +28,7 @@ use std::sync::atomic::Ordering;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use application::services::ConnectDecision;
+use application::services::{ConnectDecision, EventPublisher};
 use domain::entities::rule::SslProxyEntry;
 use http::{Request, Response};
 use hyper::body::Incoming;
@@ -37,6 +37,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 
 use crate::body::{MonitoredBody, StreamTracker};
+use crate::bypass::SilentPublisher;
 use crate::client::CONNECT_TIMEOUT;
 use crate::commands::{ConnGuard, EngineState};
 use crate::http_proxy::{ProxyService, lenient_host, text_response};
@@ -68,7 +69,8 @@ pub(crate) async fn handle_connect(
             text_response(403, "crabtrap: connection blocked")
         }
         ConnectDecision::Mitm => mitm(state, guard, req, &host, port).await,
-        ConnectDecision::Passthrough => passthrough(state, guard, req, &host_raw, port).await,
+        ConnectDecision::Passthrough => passthrough(state, guard, req, &host_raw, port, true).await,
+        ConnectDecision::Bypass => passthrough(state, guard, req, &host_raw, port, false).await,
     }
 }
 
@@ -80,11 +82,9 @@ async fn effective_decision(
     host: &domain::value_objects::Host,
     port: u16,
 ) -> ConnectDecision {
-    if matches!(
-        state.pipeline.on_connect(host, port).await,
-        ConnectDecision::Block
-    ) {
-        return ConnectDecision::Block;
+    match state.pipeline.on_connect(host, port).await {
+        decision @ (ConnectDecision::Block | ConnectDecision::Bypass) => return decision,
+        ConnectDecision::Mitm | ConnectDecision::Passthrough => {}
     }
     let entries = state.ssl_entries.read().await;
     if ssl_mitm_enabled(&entries, host.as_str()) {
@@ -269,8 +269,14 @@ async fn passthrough(
     req: Request<Incoming>,
     host: &str,
     port: u16,
+    recorded: bool,
 ) -> Response<MonitoredBody> {
-    let record = TunnelRecord::start(state.events.clone(), guard.conn_id(), host, port);
+    // Мимо записи (Allow List) — туннель тот же, строки в трафике нет.
+    let events: Arc<dyn EventPublisher> = match recorded {
+        true => state.events.clone(),
+        false => Arc::new(SilentPublisher),
+    };
+    let record = TunnelRecord::start(events, guard.conn_id(), host, port);
     // ВАЖНО: дозвон ДО ответа — см. комментарий модуля.
     let target = match dial_target(&state, host, port).await {
         Ok(stream) => stream,

@@ -62,12 +62,7 @@ fn awaits_graphql(m: &TrafficMatch, facts: &RequestFacts<'_>) -> bool {
 impl RuleSet {
     /// Маршрут запроса по правилам.
     pub fn route_request(&self, facts: &RequestFacts<'_>) -> RequestRoute<'_> {
-        if let Some(rule) = self
-            .blocks
-            .iter()
-            .filter(|_| self.blocks_enabled)
-            .find(|r| r.enabled && matches_request(&r.r#match, facts))
-        {
+        if let Some(rule) = self.block_for(facts) {
             return RequestRoute::Block(rule);
         }
         if let Some(rule) = self
@@ -87,6 +82,14 @@ impl RuleSet {
             return RequestRoute::MapRemote(rule);
         }
         RequestRoute::Origin
+    }
+
+    /// Правило Block List, которое ловит запрос (первое включённое).
+    pub fn block_for(&self, facts: &RequestFacts<'_>) -> Option<&BlockRule> {
+        self.blocks
+            .iter()
+            .filter(|_| self.blocks_enabled)
+            .find(|r| r.enabled && matches_request(&r.r#match, facts))
     }
 
     /// CONNECT к хосту заблокирован: правило Block, условие которого — только

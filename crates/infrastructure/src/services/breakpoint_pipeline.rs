@@ -194,6 +194,14 @@ impl InterceptionPipeline for BreakpointInterceptionPipeline {
         self.inner.on_connect(host, port).await
     }
 
+    fn records_host(&self, host: &str) -> bool {
+        self.inner.records_host(host)
+    }
+
+    async fn on_bypassed_request(&self, context: InterceptContext) -> InterceptOutcome {
+        self.inner.on_bypassed_request(context).await
+    }
+
     fn wants_body(&self, context: &InterceptContext) -> bool {
         self.rule_for(context).is_some() || self.inner.wants_body(context)
     }

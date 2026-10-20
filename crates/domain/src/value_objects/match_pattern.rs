@@ -42,6 +42,29 @@ pub fn glob_match(pattern: &str, text: &str, case_sensitive: bool) -> bool {
     p == pattern.len()
 }
 
+/// Шаблон хоста в списках хостов (SSL Proxying, Allow List): без учёта
+/// регистра; `*.example.com` покрывает и голый `example.com` (семантика
+/// Charles), прочие шаблоны — обычный glob.
+pub fn host_pattern_matches(pattern: &str, host: &str) -> bool {
+    let pattern = normalized_host(pattern);
+    let host = normalized_host(host);
+    if let Some(suffix) = pattern.strip_prefix("*.") {
+        return host == suffix || host.ends_with(&format!(".{suffix}"));
+    }
+    glob_match(&pattern, &host, false)
+}
+
+/// Хост для сравнения: нижний регистр, без скобок IPv6 (`[::1]` из URI и
+/// `::1` из CONNECT — один хост) и без точки FQDN на конце.
+fn normalized_host(host: &str) -> String {
+    let host = host.trim();
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    host.strip_suffix('.').unwrap_or(host).to_ascii_lowercase()
+}
+
 /// Что известно об обмене для матча правила. `url` — абсолютный URL
 /// (`https://api.test:8443/v1/x?y=1`), `path` — path + query.
 /// `graphql_operation` — имя операции из тела/query (`None` — не GraphQL или
@@ -196,6 +219,15 @@ mod tests {
             graphql_operation: graphql,
             ..MatchTarget::default()
         }
+    }
+
+    #[test]
+    fn host_patterns_ignore_ipv6_brackets_and_trailing_dot() {
+        assert!(host_pattern_matches("::1", "[::1]"));
+        assert!(host_pattern_matches("[::1]", "::1"));
+        assert!(host_pattern_matches("example.com", "Example.COM."));
+        assert!(host_pattern_matches("*.example.com", "api.example.com."));
+        assert!(!host_pattern_matches("example.com", "example.org"));
     }
 
     #[test]

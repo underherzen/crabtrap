@@ -62,6 +62,15 @@ fn spec(tab: RulesTab) -> ToolSpec {
             columns: ("Host", "Mode"),
             empty: "No hosts yet. Add one, e.g. api.example.com, *.example.com or * for all.",
         },
+        RulesTab::AllowList => ToolSpec {
+            tool: Tool::AllowList,
+            editor: RuleEditor::Dialog(DialogKind::AllowHost),
+            id: "allow",
+            enable_label: "Enable Allow List",
+            description: "Record only these hosts. Everything else passes through crabtrap unrecorded and untouched by rules — no decryption, no throttling.",
+            columns: ("Host", "Recording"),
+            empty: "No hosts yet. Add one, e.g. api.example.com or *.example.com — or right-click a request → Allow Only.",
+        },
         RulesTab::BlockList => ToolSpec {
             tool: Tool::BlockList,
             editor: RuleEditor::Dialog(DialogKind::Block),
@@ -193,6 +202,16 @@ fn rows(rules: &RuleSet, tool: Tool) -> Vec<RuleRow> {
                     "Decrypt"
                 }
                 .into(),
+            })
+            .collect(),
+        Tool::AllowList => rules
+            .allow_list
+            .iter()
+            .map(|e| RuleRow {
+                id: e.id,
+                enabled: e.enabled,
+                location: e.host_pattern.clone(),
+                target: "Recorded".into(),
             })
             .collect(),
         Tool::BlockList => rules
@@ -331,6 +350,12 @@ fn init_for_edit(rules: &RuleSet, kind: DialogKind, id: RuleId) -> Option<Dialog
                     ..LocationForm::default()
                 })
             }),
+        DialogKind::AllowHost => rules.allow_list.iter().find(|e| e.id == id).map(|e| {
+            base(LocationForm {
+                host: e.host_pattern.clone(),
+                ..LocationForm::default()
+            })
+        }),
         DialogKind::Block => rules
             .blocks
             .iter()

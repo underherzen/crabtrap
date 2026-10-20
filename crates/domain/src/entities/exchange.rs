@@ -58,12 +58,33 @@ pub struct HttpRequest {
     pub origin: RequestOrigin,
 }
 
-/// Стартовая строка и заголовки запроса.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Стартовая строка и заголовки запроса (и, где известно, его тело).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestHead {
     pub method: Method,
     pub uri: String,
     pub headers: Vec<HeaderEntry>,
+    /// Тело этого запроса; `None` — то же, что у отправленного
+    /// (`HttpExchange.request.body`): пайплайн тело не менял.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<BodyRef>,
+    /// Пайплайн тело изменил, а исходное не сохранено (не было загружено,
+    /// запись тел выключена, сбой хранилища): тела клиента нет — и
+    /// подставлять отправленное нельзя.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub body_lost: bool,
+}
+
+/// Тело клиента при правке запроса пайплайном.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub enum ClientBody {
+    /// Тело не менялось — тело клиента и есть отправленное.
+    #[default]
+    Unchanged,
+    /// Тело изменено; исходное сохранено.
+    Stored(BodyRef),
+    /// Тело изменено; исходное не сохранено.
+    Lost,
 }
 
 /// HTTP-ответ.
@@ -149,14 +170,23 @@ impl HttpExchange {
         }
     }
 
-    /// Голова запроса для повтора: исходная клиентская, если пайплайн её
-    /// менял.
+    /// Запрос для повтора — каким его прислал клиент (правила применятся
+    /// заново, а не поверх уже применённых): голова и тело клиента, если
+    /// пайплайн их менял, иначе отправленные. `body` — всегда заполнено,
+    /// если тело записано.
     pub fn replay_head(&self) -> RequestHead {
-        self.client_request.clone().unwrap_or_else(|| RequestHead {
+        let head = self.client_request.clone().unwrap_or_else(|| RequestHead {
             method: self.request.method.clone(),
             uri: self.request.uri.clone(),
             headers: self.request.headers.clone(),
-        })
+            body: None,
+            body_lost: false,
+        });
+        let body = match head.body_lost {
+            true => None,
+            false => head.body.or_else(|| self.request.body.clone()),
+        };
+        RequestHead { body, ..head }
     }
 
     /// Path+query из URI (для матчинга правил и колонки Path).
@@ -170,5 +200,92 @@ impl HttpExchange {
         } else {
             uri.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value_objects::BodyId;
+
+    fn body(size: u64) -> BodyRef {
+        BodyRef {
+            id: BodyId::new(),
+            size,
+            content_type: None,
+            encoding: None,
+            storage: Default::default(),
+        }
+    }
+
+    fn exchange() -> HttpExchange {
+        let mut exchange = HttpExchange::new_pending(
+            ConnectionId::new(),
+            Host::new("api.test").expect("host"),
+            HttpRequest {
+                method: Method::new("POST"),
+                uri: "https://api.test/sent".into(),
+                version: HttpVersionVo::Http11,
+                headers: vec![HeaderEntry::new("X-Sent", "1")],
+                body: Some(body(5)),
+                raw_size: 5,
+                origin: RequestOrigin::default(),
+            },
+            Protocol::Http1,
+            Utc::now(),
+        );
+        exchange.request.body = Some(body(5));
+        exchange
+    }
+
+    #[test]
+    fn replay_uses_the_sent_request_when_nothing_was_edited() {
+        let exchange = exchange();
+        let head = exchange.replay_head();
+        assert_eq!(head.uri, "https://api.test/sent");
+        assert_eq!(head.body, exchange.request.body);
+    }
+
+    #[test]
+    fn replay_uses_client_head_and_client_body_after_edits() {
+        let mut edited = exchange();
+        let client_body = body(9);
+        edited.client_request = Some(RequestHead {
+            method: Method::new("POST"),
+            uri: "https://api.test/original".into(),
+            headers: vec![HeaderEntry::new("X-Client", "1")],
+            body: Some(client_body.clone()),
+            body_lost: false,
+        });
+        let head = edited.replay_head();
+        assert_eq!(head.uri, "https://api.test/original");
+        assert_eq!(
+            head.body,
+            Some(client_body),
+            "the client's body, not the rewritten one"
+        );
+
+        let mut head_only = exchange();
+        head_only.client_request = Some(RequestHead {
+            body: None,
+            ..edited.client_request.clone().expect("client")
+        });
+        assert_eq!(
+            head_only.replay_head().body,
+            head_only.request.body,
+            "body untouched by the pipeline — the recorded one is the client's"
+        );
+
+        let mut lost = exchange();
+        lost.client_request = Some(RequestHead {
+            body: None,
+            body_lost: true,
+            ..edited.client_request.clone().expect("client")
+        });
+        assert_eq!(
+            lost.replay_head().body,
+            None,
+            "an edited body is never passed off as the client's"
+        );
     }
 }

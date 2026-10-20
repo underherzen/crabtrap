@@ -638,6 +638,7 @@ fn request_edited_updates_method_and_path_keeps_host() {
         uri: "http://b.com/b?y=2".into(),
         path: "/b?y=2".into(),
         headers: Vec::new(),
+        client_body: Default::default(),
     };
     assert!(apply(&mut rows, &mut index, false, &edited));
     assert_eq!(rows[0].summary.method, "PUT");

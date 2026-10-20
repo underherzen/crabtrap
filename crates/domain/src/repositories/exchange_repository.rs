@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::entities::HttpExchange;
 use crate::entities::body::BodyRef;
-use crate::entities::exchange::{ExchangeStatus, HttpResponse};
+use crate::entities::exchange::{ClientBody, ExchangeStatus, HttpResponse};
 use crate::errors::DomainError;
 use crate::value_objects::BodyId;
 use crate::value_objects::ExchangeId;
@@ -48,11 +48,13 @@ pub trait ExchangeRepository: Send + Sync {
     ) -> Result<(), DomainError>;
 
     /// Заменить стартовую строку и заголовки запроса тем, что реально ушло
-    /// дальше (пайплайн перехвата изменил запрос: скрипт, rewrite).
+    /// дальше (пайплайн перехвата изменил запрос: скрипт, rewrite). Исходный
+    /// запрос клиента запоминается (для Repeat) вместе с судьбой его тела.
     async fn update_request_head(
         &self,
         id: &ExchangeId,
         head: RequestHead,
+        client_body: ClientBody,
     ) -> Result<(), DomainError>;
 
     /// Добавить сообщение WebSocket-обмена (Phase 11b); старые сверх

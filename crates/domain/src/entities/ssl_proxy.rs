@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::value_objects::RuleId;
-use crate::value_objects::match_pattern::glob_match;
+use crate::value_objects::match_pattern::host_pattern_matches;
 
 /// Домены с системным пиннингом Apple (исключения по умолчанию).
 pub const APPLE_PINNED_HOSTS: [&str; 7] = [
@@ -66,15 +66,7 @@ impl SslProxyEntry {
     /// `*.example.com` покрывает и голый `example.com` (семантика Charles),
     /// прочие шаблоны — обычный glob.
     pub fn matches_host(&self, host: &str) -> bool {
-        if !self.enabled {
-            return false;
-        }
-        let pattern = self.host_pattern.to_ascii_lowercase();
-        let host = host.to_ascii_lowercase();
-        if let Some(suffix) = pattern.strip_prefix("*.") {
-            return host == suffix || host.ends_with(&format!(".{suffix}"));
-        }
-        glob_match(&pattern, &host, false)
+        self.enabled && host_pattern_matches(&self.host_pattern, host)
     }
 }
 

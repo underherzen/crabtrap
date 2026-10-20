@@ -1,3 +1,4 @@
+pub mod allow_list;
 pub mod body;
 pub mod certificate;
 pub mod exchange;
@@ -12,7 +13,9 @@ pub mod websocket;
 
 pub use body::{BodyDescriptor, BodyRef, BodyStorage};
 pub use certificate::{CaInfo, ClientCertificate};
-pub use exchange::{ExchangeStatus, HttpExchange, HttpRequest, HttpResponse, RequestOrigin};
+pub use exchange::{
+    ClientBody, ExchangeStatus, HttpExchange, HttpRequest, HttpResponse, RequestOrigin,
+};
 pub use network::{
     DnsOverride, ExternalProxyConfig, PortForward, ProxyAuth, ProxyKind, ReverseProxyConfig,
 };

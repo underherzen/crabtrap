@@ -7,8 +7,8 @@
 use std::path::PathBuf;
 
 use application::use_cases::rules::edit::{
-    upsert_block, upsert_breakpoint, upsert_map_local, upsert_map_remote, upsert_ssl_host,
-    with_throttle_scope,
+    upsert_allow_host, upsert_block, upsert_breakpoint, upsert_map_local, upsert_map_remote,
+    upsert_ssl_host, with_throttle_scope,
 };
 use application::use_cases::rules::location_form::{
     LocationErrors, LocationForm, RemoteTargetForm,
@@ -41,6 +41,7 @@ const HEADERS_EDITOR_HEIGHT: f32 = 84.;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialogKind {
     SslHost,
+    AllowHost,
     Block,
     MapLocal,
     MapRemote,
@@ -53,6 +54,8 @@ impl DialogKind {
         match (self, editing) {
             (DialogKind::SslHost, false) => "Add SSL Proxying host",
             (DialogKind::SslHost, true) => "Edit SSL Proxying host",
+            (DialogKind::AllowHost, false) => "Record only this host",
+            (DialogKind::AllowHost, true) => "Edit Allow List host",
             (DialogKind::Block, false) => "Block location",
             (DialogKind::Block, true) => "Edit blocked location",
             (DialogKind::MapLocal, false) => "Map location to local file",
@@ -69,7 +72,7 @@ impl DialogKind {
     /// запроса для throttle не читается).
     fn match_fields(self) -> MatchFieldsKind {
         match self {
-            DialogKind::SslHost => MatchFieldsKind::HostOnly,
+            DialogKind::SslHost | DialogKind::AllowHost => MatchFieldsKind::HostOnly,
             DialogKind::ThrottleScope => MatchFieldsKind::NoGraphql,
             DialogKind::Block
             | DialogKind::MapLocal
@@ -231,6 +234,10 @@ impl LocationDialog {
                     let host = form.normalized().host;
                     let exclude = self.ssl_exclude;
                     Box::new(move |rules| upsert_ssl_host(rules, id, &host, exclude))
+                }
+                DialogKind::AllowHost => {
+                    let host = form.normalized().host;
+                    Box::new(move |rules| upsert_allow_host(rules, id, &host))
                 }
                 DialogKind::Block => {
                     let action = if self.block_close {
@@ -552,7 +559,7 @@ impl Render for LocationDialog {
                 None,
                 danger,
             )),
-            DialogKind::ThrottleScope => body,
+            DialogKind::ThrottleScope | DialogKind::AllowHost => body,
         };
         body.when_some(self.errors.save.clone(), |el, err| {
             el.child(

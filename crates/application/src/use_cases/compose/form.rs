@@ -205,6 +205,8 @@ mod tests {
             method: Method::new("POST"),
             uri: "https://a.test/u".into(),
             headers,
+            body: None,
+            body_lost: false,
         };
         let binary = ComposeForm::from_head(&head(Vec::new()), Some(&[0xff, 0x00]));
         assert_eq!(binary.fixed_body.as_deref(), Some(&[0xff, 0x00][..]));

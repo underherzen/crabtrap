@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 
 use domain::entities::BodyRef;
 use domain::entities::HttpExchange;
-use domain::entities::exchange::{ExchangeStatus, HttpResponse};
+use domain::entities::exchange::{ClientBody, ExchangeStatus, HttpResponse};
 use domain::entities::websocket::{
     WS_BYTES_CAP, WS_MESSAGES_CAP, WebSocketMessage, WsMessagesPage,
 };
@@ -147,6 +147,13 @@ impl ExchangeRepository for InMemoryExchangeRepository {
             if let Some(b) = &evicted.request.body {
                 evicted_ids.push(b.id);
             }
+            if let Some(b) = evicted
+                .client_request
+                .as_ref()
+                .and_then(|c| c.body.as_ref())
+            {
+                evicted_ids.push(b.id);
+            }
             self.websocket
                 .lock()
                 .expect("websocket lock")
@@ -201,15 +208,21 @@ impl ExchangeRepository for InMemoryExchangeRepository {
         &self,
         id: &ExchangeId,
         head: RequestHead,
+        client_body: ClientBody,
     ) -> Result<(), DomainError> {
         let mut guard = self.exchanges.write().await;
         let exchange = find_mut(&mut guard, id)?;
-        // Исходная голова клиента — один раз (повторные правки её не трогают).
+        // Исходный запрос клиента — один раз (повторные правки его не трогают).
         if exchange.client_request.is_none() {
             exchange.client_request = Some(RequestHead {
                 method: exchange.request.method.clone(),
                 uri: exchange.request.uri.clone(),
                 headers: exchange.request.headers.clone(),
+                body_lost: client_body == ClientBody::Lost,
+                body: match client_body {
+                    ClientBody::Stored(body) => Some(body),
+                    ClientBody::Unchanged | ClientBody::Lost => None,
+                },
             });
         }
         exchange.request.method = head.method;
@@ -367,6 +380,14 @@ mod tests {
         let repo = InMemoryExchangeRepository::new(1);
         let req_body = BodyId::new();
         let resp_body = BodyId::new();
+        let client_body = BodyId::new();
+        let body_ref = |id: BodyId| BodyRef {
+            id,
+            size: 3,
+            content_type: None,
+            encoding: None,
+            storage: BodyStorage::Memory,
+        };
 
         let first = exchange("a.com", "http://a.com/1");
         let id = first.id;
@@ -404,15 +425,28 @@ mod tests {
         )
         .await
         .unwrap();
+        repo.update_request_head(
+            &id,
+            RequestHead {
+                method: Method::new("POST"),
+                uri: "http://a.com/edited".into(),
+                headers: Vec::new(),
+                body: None,
+                body_lost: false,
+            },
+            ClientBody::Stored(body_ref(client_body)),
+        )
+        .await
+        .unwrap();
         // Пустая очередь до вытеснения.
         assert!(repo.drain_evicted_bodies().await.unwrap().is_empty());
 
-        // Вытеснение «a.com» → оба тела в очереди GC.
+        // Вытеснение «a.com» → все его тела (и сохранённое тело клиента) в GC.
         repo.append(exchange("b.com", "http://b.com/2"))
             .await
             .unwrap();
         let drained = repo.drain_evicted_bodies().await.unwrap();
-        assert_eq!(drained, vec![req_body, resp_body]);
+        assert_eq!(drained, vec![req_body, client_body, resp_body]);
         // Повторный drain — пусто (однократная выдача).
         assert!(repo.drain_evicted_bodies().await.unwrap().is_empty());
     }

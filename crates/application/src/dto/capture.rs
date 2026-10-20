@@ -188,6 +188,10 @@ pub enum ProxyEvent {
         /// Path + query итогового URI (колонка Path).
         path: String,
         headers: Vec<HeaderEntryDto>,
+        /// Тело, каким его прислал клиент (для Repeat): не менялось,
+        /// сохранено или потеряно.
+        #[serde(default)]
+        client_body: domain::entities::ClientBody,
     },
     /// Тело запроса догрузилось. `body = None` — захват выключен
     /// (record_bodies), тело пусто, превышен cap (сохраняется обрезанный

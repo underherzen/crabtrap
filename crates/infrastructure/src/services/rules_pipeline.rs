@@ -42,12 +42,19 @@ impl RulesInterceptionPipeline {
 #[async_trait]
 impl InterceptionPipeline for RulesInterceptionPipeline {
     async fn on_connect(&self, host: &Host, _port: u16) -> ConnectDecision {
-        if self.snapshot().connect_blocked(host.as_str()).is_some() {
+        let rules = self.rules.read().expect("rules lock");
+        if rules.connect_blocked(host.as_str()).is_some() {
             ConnectDecision::Block
+        } else if !rules.records_host(host.as_str()) {
+            ConnectDecision::Bypass
         } else {
             // MITM/туннель решает SSL-Proxying список движка.
             ConnectDecision::Passthrough
         }
+    }
+
+    fn records_host(&self, host: &str) -> bool {
+        self.rules.read().expect("rules lock").records_host(host)
     }
 
     /// Самый внутренний пайплайн цепочки — здесь решается, нужно ли тело
@@ -77,6 +84,26 @@ impl InterceptionPipeline for RulesInterceptionPipeline {
             Err(mode) => InterceptOutcome::Abort {
                 mode,
                 tag: Some("blocked"),
+            },
+        }
+    }
+
+    async fn on_bypassed_request(&self, context: InterceptContext) -> InterceptOutcome {
+        let rules = self.snapshot();
+        let block = RequestTarget::of_message(&context.message, false)
+            .and_then(|target| rules.block_for(&target.facts()).map(|rule| rule.action));
+        match block.map(block_outcome) {
+            Some(Ok(route)) => InterceptOutcome::Proceed {
+                message: context.message,
+                route,
+            },
+            Some(Err(mode)) => InterceptOutcome::Abort {
+                mode,
+                tag: Some("blocked"),
+            },
+            None => InterceptOutcome::Proceed {
+                message: context.message,
+                route: RouteDecision::Origin,
             },
         }
     }

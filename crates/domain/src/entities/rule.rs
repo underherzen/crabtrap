@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub use super::allow_list::AllowEntry;
 use super::script_rule::ScriptRule;
 pub use super::ssl_proxy::SslProxyEntry;
 use super::ssl_proxy::{SSL_DEFAULTS_VERSION, any_decrypting, missing_default_excludes};
@@ -44,6 +45,11 @@ pub struct RuleSet {
     pub scripts_enabled: bool,
     /// Правила-скрипты (Track S).
     pub scripts: Vec<ScriptRule>,
+    /// Галочка «Enable Allow List». Старый rules.json — `false` (новая
+    /// функция, по умолчанию выключена).
+    pub allow_enabled: bool,
+    /// Хосты, которые записываются, пока Allow List действует.
+    pub allow_list: Vec<AllowEntry>,
 }
 
 impl Default for RuleSet {
@@ -67,6 +73,8 @@ impl Default for RuleSet {
             throttle: None,
             scripts_enabled: true,
             scripts: Vec::new(),
+            allow_enabled: false,
+            allow_list: Vec::new(),
         }
     }
 }

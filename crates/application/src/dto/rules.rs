@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use domain::entities::rule::BreakPhase;
 use domain::entities::rule::{
-    BlockRule, BreakpointRule, MapLocalRule, MapRemoteRule, RewriteRule, RuleSet, SslProxyEntry,
-    ThrottleProfile,
+    AllowEntry, BlockRule, BreakpointRule, MapLocalRule, MapRemoteRule, RewriteRule, RuleSet,
+    SslProxyEntry, ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
 use domain::value_objects::{ExchangeId, InterceptId, RuleId, TrafficMatch};
@@ -51,6 +51,10 @@ pub struct RuleSetDto {
     pub scripts_enabled: bool,
     #[serde(default)]
     pub scripts: Vec<ScriptRule>,
+    #[serde(default)]
+    pub allow_enabled: bool,
+    #[serde(default)]
+    pub allow_list: Vec<AllowEntry>,
 }
 
 fn default_true() -> bool {
@@ -84,6 +88,8 @@ impl RuleSetDto {
             throttle: rules.throttle.clone(),
             scripts_enabled: rules.scripts_enabled,
             scripts: rules.scripts.clone(),
+            allow_enabled: rules.allow_enabled,
+            allow_list: rules.allow_list.clone(),
         }
     }
 
@@ -107,6 +113,8 @@ impl RuleSetDto {
             throttle: self.throttle,
             scripts_enabled: self.scripts_enabled,
             scripts: self.scripts,
+            allow_enabled: self.allow_enabled,
+            allow_list: self.allow_list,
         }
     }
 }
