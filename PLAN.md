@@ -469,6 +469,9 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
   - [x] `ExportTrafficUseCase` + порт `ExportFileWriter`/`ExportFile`: HAR пишется потоком (`HarWriter`,
         тела — по одному обмену); `FsExportFileWriter`: tmp 0600 с уникальным именем, fsync, rename, без commit — удаляется
   - [x] UI: контекстное меню (Copy as cURL, Export as HAR…), меню File (сессия; с телами / без)
+  - [x] Copy as fetch / fetch (Node.js) как в Chrome (`use_cases/export/fetch.rs`): запрещённые
+        заголовки убраны, `referrer` / `mode` / `credentials` для браузера, cookie + Referer для Node;
+        все «Copy …» — в подменю Copy
   - [x] документация: раздел Export в `docs/guide.md`, README, CHANGELOG
   - [ ] Import HAR — вместе с сессиями (Phase 8)
   - [ ] ручная проверка в GUI и открытие HAR в Chrome DevTools — не делалась агентом

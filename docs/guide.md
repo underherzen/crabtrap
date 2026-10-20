@@ -301,9 +301,12 @@ Right-click a request:
 
 Repeated and composed requests show up in the traffic table, tagged `repeated` or `composed`.
 
-## Export: cURL and HAR
+## Export: cURL, fetch and HAR
 
-**Copy as cURL** (right-click a request) copies a `curl` command for the request **as crabtrap
+Right-click a request → **Copy** holds everything that goes to the clipboard, as in Chrome
+DevTools: **Copy URL**, **Copy as cURL**, **Copy as fetch** and **Copy as fetch (Node.js)**.
+
+**Copy as cURL** copies a `curl` command for the request **as crabtrap
 sent it to the server**: after Rewrite, Scripting and Breakpoint edits, with the recorded body. If
 a rule changed the request, the command repeats the changed version.
 - Curl sets `Content-Length`, `Transfer-Encoding` and `Connection` itself. `Host` is kept only when
@@ -312,6 +315,17 @@ a rule changed the request, the command repeats the changed version.
 - A binary body is piped in through `printf` with octal escapes. This reproduces every byte,
   including NUL, in zsh and bash without extra files.
 - URLs that contain `[ ] { }` get `--globoff`.
+
+**Copy as fetch** and **Copy as fetch (Node.js)** copy a `fetch(…)` call in the same layout as
+Chrome, built from the same sent request.
+- Headers that `fetch` can't set or the runtime adds itself (`Cookie`, `Referer`, `Host`,
+  `User-Agent`, `Content-Length`, `Accept-Encoding`, …) are left out.
+- The browser variant passes `Referer` as `referrer` and adds `mode: "cors"`; `credentials` is
+  `"include"` when the request had `Cookie` or `Authorization`, otherwise `"omit"`.
+- The Node.js variant has no `mode` or `credentials`, and puts `cookie` and `Referer` back into the
+  headers, because Node.js has no browser cookies to send.
+- Repeated headers are joined into one value (`Cookie` with `; `, others with `, `). A text body is
+  a string; a binary body is a `new Uint8Array([…])`.
 
 **HAR** (HTTP Archive 1.2) is the standard format that Chrome DevTools, Charles, Proxyman and
 Postman import.

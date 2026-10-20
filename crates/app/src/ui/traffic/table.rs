@@ -134,17 +134,16 @@ impl TableDelegate for ExchangeTableDelegate {
         &mut self,
         row_ix: usize,
         menu: gpui_kit::component::menu::PopupMenu,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> gpui_kit::component::menu::PopupMenu {
         let store = self.store.read(cx);
-        match store.visible_row(row_ix) {
-            Some(row) => {
-                let pinned = store.pinned.contains(&row.summary.host);
-                super::context_menu::exchange_menu(menu, &row.summary, pinned)
-            }
-            None => menu,
-        }
+        let Some(row) = store.visible_row(row_ix) else {
+            return menu;
+        };
+        let pinned = store.pinned.contains(&row.summary.host);
+        let summary = row.summary.clone();
+        super::context_menu::exchange_menu(menu, &summary, pinned, window, cx)
     }
 
     /// Подсветка выбранной строки по id обмена — на случай, когда TableState

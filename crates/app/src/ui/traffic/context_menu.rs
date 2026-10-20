@@ -5,15 +5,15 @@
 //! уже подставлены хост, путь и метод; «Save Response & Map Local…» —
 //! то же, плюс тело ответа сохранено в файл мока, статус и заголовки — в форме; Script… — Script Editor с ними же; «Enable SSL Proxying for <host>»
 //! добавляет хост сразу; «Pin/Unpin <host>» — закрепить домен в боковой
-//! панели; «Copy URL» / «Copy as cURL» — в буфер обмена; «Export as HAR…» —
-//! файл с этим обменом.
+//! панели; подменю «Copy» (URL, cURL, fetch, fetch для Node.js, как в Chrome)
+//! — в буфер обмена; «Export as HAR…» — файл с этим обменом.
 
 use application::dto::capture::ExchangeSummaryDto;
-use application::use_cases::export::HarScope;
+use application::use_cases::export::{CopyFormat, HarScope};
 use application::use_cases::rules::edit::{with_host_allowed, with_ssl_host_enabled};
 use application::use_cases::rules::location_form::LocationForm;
-use gpui_kit::ClipboardItem;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::{App, ClipboardItem, Entity, Window};
 
 use crate::ui::compose;
 use crate::ui::export;
@@ -48,7 +48,13 @@ pub fn rule_prefill(summary: &ExchangeSummaryDto) -> LocationForm {
 }
 
 /// Пункты меню для обмена (`pinned` — домен уже закреплён).
-pub fn exchange_menu(menu: PopupMenu, summary: &ExchangeSummaryDto, pinned: bool) -> PopupMenu {
+pub fn exchange_menu(
+    menu: PopupMenu,
+    summary: &ExchangeSummaryDto,
+    pinned: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> PopupMenu {
     let prefill = rule_prefill(summary);
     let open_tool = |label: &'static str, tab: RulesTab| {
         let prefill = prefill.clone();
@@ -56,8 +62,8 @@ pub fn exchange_menu(menu: PopupMenu, summary: &ExchangeSummaryDto, pinned: bool
             .on_click(move |_, _, cx| rules_window::open(tab, Some(prefill.clone()), cx))
     };
     let host = bare_host(summary);
-    let url = exchange_url(summary);
     let id = summary.id;
+    let copy = copy_submenu(summary, window, cx);
     menu.item(PopupMenuItem::new("Repeat").on_click(move |_, _, cx| compose::repeat(id, cx)))
         .item(
             PopupMenuItem::new("Edit & Resend…")
@@ -118,12 +124,7 @@ pub fn exchange_menu(menu: PopupMenu, summary: &ExchangeSummaryDto, pinned: bool
             }),
         )
         .separator()
-        .item(PopupMenuItem::new("Copy URL").on_click(move |_, _, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
-        }))
-        .item(
-            PopupMenuItem::new("Copy as cURL").on_click(move |_, _, cx| export::copy_curl(id, cx)),
-        )
+        .item(PopupMenuItem::submenu("Copy", copy))
         .item({
             let name = export::exchange_file_name(&bare_host(summary));
             PopupMenuItem::new("Export as HAR…")
@@ -132,6 +133,30 @@ pub fn exchange_menu(menu: PopupMenu, summary: &ExchangeSummaryDto, pinned: bool
                     export::export_har(HarScope::Exchange(id), true, name.clone(), cx)
                 })
         })
+}
+
+/// Подменю «Copy»: URL и запрос в форматах «Copy as …».
+fn copy_submenu(
+    summary: &ExchangeSummaryDto,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<PopupMenu> {
+    let url = exchange_url(summary);
+    let id = summary.id;
+    PopupMenu::build(window, cx, move |menu, _, _| {
+        let url = url.clone();
+        let menu = menu.item(PopupMenuItem::new("Copy URL").on_click(move |_, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
+        }));
+        [CopyFormat::Curl, CopyFormat::Fetch, CopyFormat::FetchNodeJs]
+            .into_iter()
+            .fold(menu, |menu, format| {
+                menu.item(
+                    PopupMenuItem::new(format!("Copy as {}", export::label(format)))
+                        .on_click(move |_, _, cx| export::copy_as(id, format, cx)),
+                )
+            })
+    })
 }
 
 #[cfg(test)]

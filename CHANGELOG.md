@@ -19,6 +19,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   everything else is proxied unrecorded and untouched. A status bar note shows when it is on.
 - **Copy as cURL** and **Export as HAR…** in the traffic context menu; **File → Export Session as
   HAR…** (with or without bodies).
+- **Copy as fetch** and **Copy as fetch (Node.js)**, in the Chrome DevTools format. All copy actions
+  (URL, cURL, fetch) are grouped in a **Copy** submenu of the traffic context menu.
 
 ### Fixed
 - Repeat and Edit & Resend sent the client's original headers together with a body that a rule had

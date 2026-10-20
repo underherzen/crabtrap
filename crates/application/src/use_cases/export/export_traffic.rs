@@ -1,4 +1,4 @@
-//! Сценарии экспорта: «Copy as cURL» для обмена и HAR-файл для обмена или
+//! Сценарии экспорта: «Copy as cURL / fetch» для обмена и HAR-файл для обмена или
 //! всей записанной сессии.
 
 use std::io::BufWriter;
@@ -13,8 +13,17 @@ use domain::value_objects::ExchangeId;
 use domain::value_objects::filter_query::FilterQuery;
 
 use super::curl::curl_command;
+use super::fetch::{FetchStyle, fetch_snippet};
 use super::har::{HarSource, HarWriter, har_entry};
 use crate::services::{BodyDecoderService, ExportFileWriter};
+
+/// Во что превратить запрос для буфера обмена.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyFormat {
+    Curl,
+    Fetch,
+    FetchNodeJs,
+}
 
 /// Что экспортировать в HAR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,19 +55,24 @@ impl ExportTrafficUseCase {
         }
     }
 
-    /// Команда curl: запрос, каким crabtrap отправил его дальше (после
-    /// правок Rewrite / скриптов / брейкпоинта) — тело записано именно
-    /// такое, и заголовки должны ему соответствовать.
-    pub async fn curl(&self, id: &ExchangeId) -> Result<String, DomainError> {
+    /// Команда curl / вызов fetch: запрос, каким crabtrap отправил его
+    /// дальше (после правок Rewrite / скриптов / брейкпоинта) — тело
+    /// записано именно такое, и заголовки должны ему соответствовать.
+    pub async fn copy_as(
+        &self,
+        id: &ExchangeId,
+        format: CopyFormat,
+    ) -> Result<String, DomainError> {
         let exchange = self.exchange(id).await?;
         let request = &exchange.request;
         let body = self.raw_body(request.body.as_ref()).await?;
-        Ok(curl_command(
-            request.method.as_str(),
-            &request.uri,
-            &request.headers,
-            body.as_deref(),
-        ))
+        let (method, url) = (request.method.as_str(), request.uri.as_str());
+        let fetch = |style| fetch_snippet(style, method, url, &request.headers, body.as_deref());
+        Ok(match format {
+            CopyFormat::Curl => curl_command(method, url, &request.headers, body.as_deref()),
+            CopyFormat::Fetch => fetch(FetchStyle::Browser),
+            CopyFormat::FetchNodeJs => fetch(FetchStyle::NodeJs),
+        })
     }
 
     /// Записать HAR в `path`; возврат — сколько обменов попало в файл

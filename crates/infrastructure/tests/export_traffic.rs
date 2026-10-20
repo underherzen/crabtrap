@@ -1,10 +1,10 @@
-//! Экспорт на реальных адаптерах: cURL и HAR из обменов в памяти,
+//! Экспорт на реальных адаптерах: cURL, fetch и HAR из обменов в памяти,
 //! gzip-тело ответа распаковано, файл записан на диск.
 
 use std::io::Write as _;
 use std::sync::Arc;
 
-use application::use_cases::export::{ExportTrafficUseCase, HarScope};
+use application::use_cases::export::{CopyFormat, ExportTrafficUseCase, HarScope};
 use chrono::{Duration, Utc};
 use domain::entities::ExchangeStatus;
 use domain::entities::body::BodyDescriptor;
@@ -126,7 +126,11 @@ async fn curl_repeats_the_sent_request_with_its_body() {
     let fx = fixture();
     let id = record(&fx, "/items?draft=1", 0, true).await;
 
-    let curl = fx.use_case.curl(&id).await.expect("curl");
+    let curl = fx
+        .use_case
+        .copy_as(&id, CopyFormat::Curl)
+        .await
+        .expect("curl");
 
     assert!(curl.contains("-X 'POST'"), "{curl}");
     assert!(curl.contains("'https://api.test/items?draft=1'"), "{curl}");
@@ -136,6 +140,40 @@ async fn curl_repeats_the_sent_request_with_its_body() {
     );
     assert!(!curl.contains("Content-Length"), "{curl}");
     assert!(curl.ends_with(r#"--data-raw '{"name":"crab"}'"#), "{curl}");
+}
+
+#[tokio::test]
+async fn fetch_variants_carry_the_sent_body() {
+    let fx = fixture();
+    let id = record(&fx, "/items", 0, true).await;
+
+    let browser = fx
+        .use_case
+        .copy_as(&id, CopyFormat::Fetch)
+        .await
+        .expect("fetch");
+    let node = fx
+        .use_case
+        .copy_as(&id, CopyFormat::FetchNodeJs)
+        .await
+        .expect("fetch node");
+
+    assert!(
+        browser.starts_with(r#"fetch("https://api.test/items", {"#),
+        "{browser}"
+    );
+    assert!(
+        browser.contains(r#""body": "{\"name\":\"crab\"}""#),
+        "{browser}"
+    );
+    assert!(browser.contains(r#""method": "POST""#), "{browser}");
+    assert!(browser.contains(r#""mode": "cors""#), "{browser}");
+    assert!(!browser.contains("Content-Length"), "{browser}");
+    assert!(!node.contains("\"mode\""), "{node}");
+    assert!(
+        node.contains(r#""Content-Type": "application/json""#),
+        "{node}"
+    );
 }
 
 #[tokio::test]

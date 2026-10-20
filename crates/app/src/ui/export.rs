@@ -1,10 +1,10 @@
-//! Экспорт из трафика: «Copy as cURL» (в буфер обмена) и HAR-файл для
+//! Экспорт из трафика: «Copy as cURL / fetch» (в буфер обмена) и HAR-файл для
 //! обмена или всей сессии (путь — системный диалог сохранения).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use application::use_cases::export::{ExportTrafficUseCase, HarScope};
+use application::use_cases::export::{CopyFormat, ExportTrafficUseCase, HarScope};
 use domain::value_objects::ExchangeId;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::{App, AsyncApp, ClipboardItem, Global};
@@ -32,14 +32,14 @@ fn deps(cx: &App) -> Option<ExportDeps> {
     deps
 }
 
-/// Команда curl запроса — в буфер обмена.
-pub fn copy_curl(id: ExchangeId, cx: &mut App) {
+/// Команда curl / вызов fetch для запроса — в буфер обмена.
+pub fn copy_as(id: ExchangeId, format: CopyFormat, cx: &mut App) {
     let Some(deps) = deps(cx) else {
         return;
     };
     let (tx, rx) = async_channel::bounded(1);
     deps.runtime.spawn(async move {
-        let _ = tx.send(deps.use_case.curl(&id).await).await;
+        let _ = tx.send(deps.use_case.copy_as(&id, format).await).await;
     });
     cx.spawn(async move |cx: &mut AsyncApp| {
         let Ok(result) = rx.recv().await else {
@@ -48,12 +48,24 @@ pub fn copy_curl(id: ExchangeId, cx: &mut App) {
         cx.update(|cx| match result {
             Ok(command) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(command));
-                notify(Notification::success("cURL command copied"), cx);
+                notify(
+                    Notification::success(format!("{} copied", label(format))),
+                    cx,
+                );
             }
-            Err(error) => notify_error(format!("Can't copy as cURL: {error}"), cx),
+            Err(error) => notify_error(format!("Can't copy as {}: {error}", label(format)), cx),
         });
     })
     .detach();
+}
+
+/// Название формата — как в пунктах меню «Copy as …».
+pub fn label(format: CopyFormat) -> &'static str {
+    match format {
+        CopyFormat::Curl => "cURL",
+        CopyFormat::Fetch => "fetch",
+        CopyFormat::FetchNodeJs => "fetch (Node.js)",
+    }
 }
 
 /// Спросить путь и записать HAR (`with_bodies = false` — только заголовки).
