@@ -157,7 +157,8 @@ impl RecordExchangeEventUseCase {
             | ProxyEvent::InterceptWaiting { .. }
             | ProxyEvent::InterceptResolved { .. }
             | ProxyEvent::ScriptLog { .. }
-            | ProxyEvent::EngineStatus { .. } => Ok(()),
+            | ProxyEvent::EngineStatus { .. }
+            | ProxyEvent::ReverseProxyStatus { .. } => Ok(()),
         }
     }
 

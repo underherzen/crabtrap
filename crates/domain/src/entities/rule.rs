@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub use super::allow_list::AllowEntry;
 pub use super::dns_spoof::DnsSpoofEntry;
+pub use super::reverse_proxy::ReverseProxyEntry;
 use super::script_rule::ScriptRule;
 pub use super::ssl_proxy::SslProxyEntry;
 use super::ssl_proxy::{SSL_DEFAULTS_VERSION, any_decrypting, missing_default_excludes};
@@ -56,6 +57,11 @@ pub struct RuleSet {
     pub dns_spoof_enabled: bool,
     /// Хосты, которые разрешаются в заданный IP.
     pub dns_spoof: Vec<DnsSpoofEntry>,
+    /// Галочка «Enable Reverse Proxy». Старый rules.json — `true` (записей
+    /// там нет).
+    pub reverse_proxy_enabled: bool,
+    /// Локальные порты → целевые серверы.
+    pub reverse_proxies: Vec<ReverseProxyEntry>,
 }
 
 impl Default for RuleSet {
@@ -83,6 +89,8 @@ impl Default for RuleSet {
             allow_list: Vec::new(),
             dns_spoof_enabled: true,
             dns_spoof: Vec::new(),
+            reverse_proxy_enabled: true,
+            reverse_proxies: Vec::new(),
         }
     }
 }

@@ -15,6 +15,7 @@ use tokio::net::TcpStream;
 
 use crate::commands::{ConnGuard, EngineState};
 use crate::http_proxy::ProxyService;
+use crate::reverse::ReverseTarget;
 
 /// Обслужить одно принятое соединение (запускается в JoinSet).
 ///
@@ -26,6 +27,7 @@ pub(crate) async fn serve_connection(
     stream: TcpStream,
     peer: std::net::SocketAddr,
     permit: tokio::sync::OwnedSemaphorePermit,
+    reverse: Option<Arc<ReverseTarget>>,
 ) {
     let conn_id = ConnectionId::new();
     let seq = state.next_conn_seq();
@@ -40,8 +42,9 @@ pub(crate) async fn serve_connection(
     let guard = ConnGuard::new(state.clone(), conn_id, permit);
     let listener_addr = stream.local_addr().ok();
     let io = TokioIo::new(stream);
-    let service =
-        ProxyService::new(state.clone(), conn_id, guard.clone()).with_listener_addr(listener_addr);
+    let service = ProxyService::new(state.clone(), conn_id, guard.clone())
+        .with_listener_addr(listener_addr)
+        .with_reverse(reverse);
 
     let res = hyper::server::conn::http1::Builder::new()
         .preserve_header_case(true)

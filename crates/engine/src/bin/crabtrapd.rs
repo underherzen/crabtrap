@@ -132,6 +132,15 @@ impl EventPublisher for PrintingPublisher {
                 )
             }
             ProxyEvent::InterceptResolved { id } => println!("[intr ] resolved {}", short(id)),
+            ProxyEvent::ReverseProxyStatus {
+                listen_port,
+                listening,
+                error,
+            } => match (listening, error) {
+                (Some(addr), _) => println!("[rev  ] :{listen_port} listening on {addr}"),
+                (None, Some(error)) => println!("[rev  ] :{listen_port} error: {error}"),
+                (None, None) => println!("[rev  ] :{listen_port} stopped"),
+            },
         }
     }
 }

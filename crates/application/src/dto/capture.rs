@@ -264,4 +264,11 @@ pub enum ProxyEvent {
         active_conns: usize,
         error: Option<String>,
     },
+    /// Листенер Reverse Proxy: встал (`listening`), не смог (`error`) или
+    /// погашен (оба `None`).
+    ReverseProxyStatus {
+        listen_port: u16,
+        listening: Option<String>,
+        error: Option<String>,
+    },
 }

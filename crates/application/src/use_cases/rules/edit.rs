@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use domain::DomainError;
 use domain::entities::rule::{
     AllowEntry, BlockAction, BlockRule, BreakPhase, BreakpointRule, DEFAULT_MAP_LOCAL_STATUS,
-    DnsSpoofEntry, MapLocalRule, MapRemoteRule, RemotePathMode, RewriteLocation, RewriteOp,
-    RewriteRule, RuleSet, SslProxyEntry, ThrottleProfile,
+    DnsSpoofEntry, MapLocalRule, MapRemoteRule, RemotePathMode, ReverseProxyEntry, RewriteLocation,
+    RewriteOp, RewriteRule, RuleSet, SslProxyEntry, ThrottleProfile,
 };
 use domain::entities::script_rule::ScriptRule;
 use domain::value_objects::http_vo::HeaderEntry;
@@ -343,6 +343,32 @@ pub fn upsert_dns_spoof(
     })
 }
 
+/// Запись Reverse Proxy: новая или правка существующей. `target` — origin
+/// без пути (проверяет `UpdateRuleSetUseCase`).
+pub fn upsert_reverse_proxy(
+    rules: RuleSet,
+    id: Option<RuleId>,
+    listen_port: u16,
+    target: String,
+    preserve_host: bool,
+) -> RuleSet {
+    RuleSet {
+        reverse_proxies: upsert(
+            rules.reverse_proxies,
+            id,
+            |r| r.id,
+            |old| ReverseProxyEntry {
+                id: old.map(|o| o.id).unwrap_or_else(RuleId::new),
+                listen_port,
+                target,
+                preserve_host,
+                enabled: old.is_none_or(|o| o.enabled),
+            },
+        ),
+        ..rules
+    }
+}
+
 /// IP-адрес из поля формы (скобки IPv6 допускаются).
 pub fn parse_ip(input: &str) -> Result<std::net::IpAddr, DomainError> {
     let trimmed = input.trim();
@@ -463,6 +489,17 @@ pub fn with_rule_duplicated(rules: RuleSet, id: RuleId) -> RuleSet {
                 ..r
             },
         ),
+        // Копия занимала бы тот же порт — создаётся выключенной.
+        reverse_proxies: dup(
+            rules.reverse_proxies,
+            id,
+            |r| r.id,
+            |r| ReverseProxyEntry {
+                id: RuleId::new(),
+                enabled: false,
+                ..r
+            },
+        ),
         ..rules
     }
 }
@@ -473,6 +510,7 @@ pub enum Tool {
     SslProxying,
     AllowList,
     DnsSpoofing,
+    ReverseProxy,
     BlockList,
     MapLocal,
     MapRemote,
@@ -487,6 +525,7 @@ pub fn tool_enabled(rules: &RuleSet, tool: Tool) -> bool {
         Tool::SslProxying => rules.ssl_proxy_enabled,
         Tool::AllowList => rules.allow_enabled,
         Tool::DnsSpoofing => rules.dns_spoof_enabled,
+        Tool::ReverseProxy => rules.reverse_proxy_enabled,
         Tool::BlockList => rules.blocks_enabled,
         Tool::MapLocal => rules.map_local_enabled,
         Tool::MapRemote => rules.map_remote_enabled,
@@ -506,6 +545,10 @@ pub fn with_tool_enabled(rules: RuleSet, tool: Tool, enabled: bool) -> RuleSet {
         },
         Tool::DnsSpoofing => RuleSet {
             dns_spoof_enabled: enabled,
+            ..rules
+        },
+        Tool::ReverseProxy => RuleSet {
+            reverse_proxy_enabled: enabled,
             ..rules
         },
         Tool::BlockList => RuleSet {
@@ -615,6 +658,11 @@ pub fn without_rule(rules: RuleSet, id: RuleId) -> RuleSet {
             .filter(|r| r.id != id)
             .collect(),
         dns_spoof: rules.dns_spoof.into_iter().filter(|r| r.id != id).collect(),
+        reverse_proxies: rules
+            .reverse_proxies
+            .into_iter()
+            .filter(|r| r.id != id)
+            .collect(),
         ..rules
     }
 }
@@ -732,6 +780,14 @@ pub fn with_rule_toggled(rules: RuleSet, id: RuleId) -> RuleSet {
             .dns_spoof
             .into_iter()
             .map(|r| DnsSpoofEntry {
+                enabled: r.enabled != (r.id == id),
+                ..r
+            })
+            .collect(),
+        reverse_proxies: rules
+            .reverse_proxies
+            .into_iter()
+            .map(|r| ReverseProxyEntry {
                 enabled: r.enabled != (r.id == id),
                 ..r
             })
@@ -889,6 +945,35 @@ mod tests {
         let off = with_tool_enabled(edited, Tool::DnsSpoofing, false);
         assert!(!tool_enabled(&off, Tool::DnsSpoofing));
         assert!(off.effective_dns_overrides().is_empty());
+    }
+
+    #[test]
+    fn reverse_proxy_entries_take_part_in_generic_rule_edits() {
+        let rules = upsert_reverse_proxy(
+            RuleSet::default(),
+            None,
+            9090,
+            "https://api.example.com".into(),
+            false,
+        );
+        let id = rules.reverse_proxies[0].id;
+        let edited =
+            upsert_reverse_proxy(rules, Some(id), 9091, "http://localhost:3000".into(), true);
+        assert_eq!(edited.reverse_proxies.len(), 1);
+        assert_eq!(edited.reverse_proxies[0].listen_port, 9091);
+        assert!(edited.reverse_proxies[0].preserve_host);
+
+        let copied = with_rule_duplicated(edited.clone(), id);
+        assert_eq!(copied.reverse_proxies.len(), 2);
+        assert!(
+            !copied.reverse_proxies[1].enabled,
+            "a copy would take the same port"
+        );
+        assert!(!with_rule_toggled(edited.clone(), id).reverse_proxies[0].enabled);
+        assert!(without_rule(edited.clone(), id).reverse_proxies.is_empty());
+        let off = with_tool_enabled(edited, Tool::ReverseProxy, false);
+        assert!(!tool_enabled(&off, Tool::ReverseProxy));
+        assert!(off.effective_reverse_proxies().is_empty());
     }
 
     #[test]

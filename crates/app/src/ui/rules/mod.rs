@@ -11,6 +11,7 @@
 
 pub mod dialog;
 pub mod match_fields;
+mod reverse_dialog;
 mod rewrite_dialog;
 pub mod save_mock;
 pub mod store;
@@ -46,6 +47,7 @@ pub enum RulesTab {
     SslProxying,
     AllowList,
     DnsSpoofing,
+    ReverseProxy,
     BlockList,
     MapLocal,
     MapRemote,
@@ -56,10 +58,11 @@ pub enum RulesTab {
 }
 
 impl RulesTab {
-    pub const ALL: [RulesTab; 10] = [
+    pub const ALL: [RulesTab; 11] = [
         RulesTab::SslProxying,
         RulesTab::AllowList,
         RulesTab::DnsSpoofing,
+        RulesTab::ReverseProxy,
         RulesTab::BlockList,
         RulesTab::MapLocal,
         RulesTab::MapRemote,
@@ -75,6 +78,7 @@ impl RulesTab {
             RulesTab::SslProxying => Tool::SslProxying,
             RulesTab::AllowList => Tool::AllowList,
             RulesTab::DnsSpoofing => Tool::DnsSpoofing,
+            RulesTab::ReverseProxy => Tool::ReverseProxy,
             RulesTab::BlockList => Tool::BlockList,
             RulesTab::MapLocal => Tool::MapLocal,
             RulesTab::MapRemote => Tool::MapRemote,
@@ -90,6 +94,7 @@ impl RulesTab {
             RulesTab::SslProxying => AppIcon::ShieldCheck,
             RulesTab::AllowList => AppIcon::Funnel,
             RulesTab::DnsSpoofing => AppIcon::Server,
+            RulesTab::ReverseProxy => AppIcon::ArrowDownUp,
             RulesTab::BlockList => AppIcon::Ban,
             RulesTab::MapLocal => AppIcon::FolderOpen,
             RulesTab::MapRemote => AppIcon::Globe,
@@ -105,6 +110,7 @@ impl RulesTab {
             RulesTab::SslProxying => "SSL Proxying",
             RulesTab::AllowList => "Allow List",
             RulesTab::DnsSpoofing => "DNS Spoofing",
+            RulesTab::ReverseProxy => "Reverse Proxy",
             RulesTab::BlockList => "Block List",
             RulesTab::MapLocal => "Map Local",
             RulesTab::MapRemote => "Map Remote",

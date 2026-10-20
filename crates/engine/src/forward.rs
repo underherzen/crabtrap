@@ -230,8 +230,9 @@ impl ProxyService {
         match route {
             RouteDecision::Origin => {
                 // Host, выставленный пайплайном, — намеренный (виртуальный
-                // хост на том же адресе); иначе Host = authority URI.
-                if !edits.host_header {
+                // хост на том же адресе), как и Host клиента Reverse Proxy с
+                // «Keep original Host»; иначе Host = authority URI.
+                if !edits.host_header && !self.keeps_client_host() {
                     set_host(&mut parts.headers, authority.as_str());
                 }
                 self.relay_upstream(ctx, pending, parts, req_body).await
@@ -395,8 +396,9 @@ impl ProxyService {
                 },
                 tls_mitm,
                 tags: crate::direct::origin_tag(self.origin)
-                    .map(str::to_string)
                     .into_iter()
+                    .chain(self.reverse.as_ref().map(|_| crate::reverse::REVERSE_TAG))
+                    .map(str::to_string)
                     .collect(),
             },
             tls,

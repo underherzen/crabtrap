@@ -21,6 +21,7 @@ mod http_proxy;
 mod intercept_body;
 mod mitm;
 mod mobileconfig;
+mod reverse;
 mod server;
 mod throttle;
 mod tunnel_record;
@@ -200,6 +201,11 @@ pub async fn run(
     state.set_listening(Some(local_addr)).await;
 
     let semaphore = Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrent_conns));
+    let mut reverse = reverse::ReverseProxies::new(
+        Arc::clone(&state),
+        Arc::clone(&semaphore),
+        listener.local_addr().ok(),
+    );
     let mut conns: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
     if let Some(queue) = deps.direct_requests {
         conns.spawn(direct::serve(
@@ -214,6 +220,9 @@ pub async fn run(
             biased;
             maybe_cmd = cmd_rx.recv() => {
                 match maybe_cmd {
+                    // Листенеры Reverse Proxy живут в этом цикле (лимит
+                    // соединений общий с основным).
+                    Ok(EngineCommand::SetReverseProxies { entries }) => reverse.apply(entries).await,
                     Ok(cmd) => {
                         if state.handle_command(cmd).await == commands::CommandFlow::Shutdown {
                             tracing::info!("engine stopping (Stop command)");
@@ -244,6 +253,7 @@ pub async fn run(
                             stream,
                             peer,
                             permit,
+                            None,
                         ));
                     }
                     Err(e) => {
@@ -258,6 +268,7 @@ pub async fn run(
     // Graceful shutdown: перестать принимать (drop listener), прервать
     // соединения и туннели, дождаться завершения задач.
     drop(listener);
+    reverse.stop_all().await;
     conns.abort_all();
     while conns.join_next().await.is_some() {}
     state.abort_tunnels().await;

@@ -142,4 +142,7 @@ fn push_to_engine(engine: &EngineHandle, rules: &RuleSet) {
     engine.send(EngineCommand::SetDnsOverrides {
         entries: rules.effective_dns_overrides(),
     });
+    engine.send(EngineCommand::SetReverseProxies {
+        entries: rules.effective_reverse_proxies(),
+    });
 }

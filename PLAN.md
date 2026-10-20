@@ -408,7 +408,7 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
 
 ### Phase 10 — Reverse proxy + port forwarding + DNS spoofing (~3 дня) ⬜
 
-- [ ] `engine/reverse.rs`: отдельный listener → перезапись Host/URL на target (preserve_host on/off)
+- [x] `engine/reverse.rs`: отдельный listener → перезапись Host/URL на target (preserve_host on/off) — Track P7
 - [ ] `engine/port_forward.rs`: TCP forward (запись соединения без exchange)
 - [x] DNS spoofing — сделан в Track P5 (override-таблица в коннекторе и CONNECT; системный резолвер)
 - [ ] UI network-контекста
@@ -508,6 +508,15 @@ Scripting → Rewrite → Breakpoints (видят итоговое сообще�
   - [ ] ручная проверка в GUI — не делалась агентом
 - [ ] **P7.** Крупное — по существующим фазам: Reverse Proxy (Phase 10), resend WS (Phase 11),
       сессии/mirror (Phase 8)
+  - [x] Reverse Proxy (2026-10-20): `ReverseProxyEntry` в RuleSet (`reverse_proxy_enabled`, старый
+        rules.json — вкл, пусто), `effective_reverse_proxies`; `EngineCommand::SetReverseProxies` —
+        `ReverseProxies` в цикле `run` (дифф таблицы, общий лимит соединений, интерфейс основного
+        листенера), событие `ReverseProxyStatus`; origin-form → цель + path/query, Host цели или
+        клиента, CONNECT — 405, тег `reverse-proxy`; валидация (порт, origin без пути, уникальный порт
+        среди включённых); Tools → Reverse Proxy (`reverse_dialog.rs`, `ReverseProxyForm`),
+        уведомление о занятом порте; тесты `engine/tests/reverse_proxy.rs`
+  - [ ] resend WS
+  - [ ] сессии / import HAR / mirror
 
 **Проверка**: на каждую подфазу — `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,
 `cargo test --workspace`; ручная — собственный тестовый инстанс на отдельном порту + `curl -x`.

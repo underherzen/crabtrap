@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use domain::entities::network::{DnsOverride, ExternalProxyConfig};
+use domain::entities::network::{DnsOverride, ExternalProxyConfig, ReverseProxyConfig};
 use domain::entities::rule::{RuleSet, SslProxyEntry};
 
 use crate::dto::rules::{InterceptResolutionDto, ThrottleSpecDto};
@@ -76,6 +76,11 @@ pub enum EngineCommand {
     },
     SetDnsOverrides {
         entries: Vec<DnsOverride>,
+    },
+    /// Таблица Reverse Proxy: листенеры приводятся к ней (лишние гасятся,
+    /// новые встают); итог — события `ReverseProxyStatus`.
+    SetReverseProxies {
+        entries: Vec<ReverseProxyConfig>,
     },
     /// Вкл/выкл захвата тел на лету (Phase 4, тумблер «Recording» в
     /// тулбаре): tee MonitoredBody начинает/перестаёт складывать тела.

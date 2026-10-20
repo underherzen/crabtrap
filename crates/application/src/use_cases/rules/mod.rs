@@ -5,6 +5,7 @@ pub mod edit;
 mod get_rule_set;
 pub mod location_form;
 pub mod response_form;
+pub mod reverse_form;
 pub mod rewrite_form;
 pub mod save_response_mock;
 pub mod script_edit;

@@ -10,6 +10,7 @@ use application::use_cases::rules::edit::{
 };
 use application::use_cases::rules::location_form::{LocationForm, RemoteTargetForm};
 use application::use_cases::rules::response_form::ResponseForm;
+use application::use_cases::rules::reverse_form::ReverseProxyForm;
 use domain::entities::rule::{
     BlockAction, BreakPhase, DEFAULT_MAP_LOCAL_STATUS, MapLocalRule, MapRemoteRule, RemotePathMode,
     RewriteLocation, RewriteRule, RuleSet,
@@ -22,6 +23,7 @@ use gpui_kit::{
 };
 
 use super::dialog::{DialogInit, DialogKind, open_location_dialog};
+use super::reverse_dialog::open_reverse_dialog;
 use super::rewrite_dialog::open_rewrite_dialog;
 use super::store::RulesStore;
 use super::table::{
@@ -38,6 +40,8 @@ enum RuleEditor {
     Rewrite,
     /// Отдельное окно Script Editor.
     Script,
+    /// Диалог Reverse Proxy (порт и цель, без условия).
+    ReverseProxy,
 }
 
 /// Всё, чем вкладки инструментов отличаются друг от друга.
@@ -79,6 +83,15 @@ fn spec(tab: RulesTab) -> ToolSpec {
             description: "These hosts connect to the given IP instead of the address from DNS. The request keeps its Host, SNI and certificate checks — handy for a staging server or a local backend under the production name.",
             columns: ("Host", "Resolves to"),
             empty: "No hosts yet. Add one, e.g. api.example.com → 127.0.0.1 — or right-click a request → DNS Spoofing…",
+        },
+        RulesTab::ReverseProxy => ToolSpec {
+            tool: Tool::ReverseProxy,
+            editor: RuleEditor::ReverseProxy,
+            id: "reverse",
+            enable_label: "Enable Reverse Proxy",
+            description: "A local port that forwards to a server: point a client that can't use a proxy at http://localhost:<port>, and its requests go to the target and show up in the traffic.",
+            columns: ("Local port", "Forward to"),
+            empty: "No reverse proxies. Add one, e.g. 9090 → https://api.example.com.",
         },
         RulesTab::BlockList => ToolSpec {
             tool: Tool::BlockList,
@@ -171,6 +184,18 @@ fn open_editor(
             }
         }
         RuleEditor::Script => scripting_window::open_rule(id, cx),
+        RuleEditor::ReverseProxy => {
+            let entry = store
+                .read(cx)
+                .rules
+                .reverse_proxies
+                .iter()
+                .find(|r| r.id == id)
+                .map(ReverseProxyForm::from_entry);
+            if let Some(form) = entry {
+                open_reverse_dialog(store.clone(), Some(id), form, window, cx);
+            }
+        }
     }
 }
 
@@ -192,6 +217,14 @@ fn open_new(
         }
         RuleEditor::Rewrite => open_rewrite_dialog(store.clone(), None, location, window, cx),
         RuleEditor::Script => scripting_window::open_new(location, cx),
+        RuleEditor::ReverseProxy => {
+            let form = ReverseProxyForm {
+                https: true,
+                host: location.host,
+                ..ReverseProxyForm::default()
+            };
+            open_reverse_dialog(store.clone(), None, form, window, cx);
+        }
     }
 }
 
@@ -231,6 +264,19 @@ fn rows(rules: &RuleSet, tool: Tool) -> Vec<RuleRow> {
                 enabled: e.enabled,
                 location: e.host_pattern.clone(),
                 target: e.ip.to_string(),
+            })
+            .collect(),
+        Tool::ReverseProxy => rules
+            .reverse_proxies
+            .iter()
+            .map(|e| RuleRow {
+                id: e.id,
+                enabled: e.enabled,
+                location: format!("localhost:{}", e.listen_port),
+                target: match e.preserve_host {
+                    true => format!("{}  (keep Host)", e.target),
+                    false => e.target.clone(),
+                },
             })
             .collect(),
         Tool::BlockList => rules

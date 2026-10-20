@@ -108,6 +108,45 @@ fn validate_remote_url(remote: &str, what: &str) -> Result<(), DomainError> {
     }
 }
 
+/// Запись Reverse Proxy: порт не 0, цель — http(s)-origin без пути и query.
+fn validate_reverse_proxy(
+    entry: &domain::entities::rule::ReverseProxyEntry,
+) -> Result<(), DomainError> {
+    let what = format!("reverse proxy :{}", entry.listen_port);
+    if entry.listen_port == 0 {
+        return Err(DomainError::ValidationError(
+            "reverse proxy: local port must be 1–65535".into(),
+        ));
+    }
+    let target = url::Url::parse(&entry.target).ok().filter(|u| {
+        matches!(u.scheme(), "http" | "https")
+            && u.host_str().is_some_and(|h| !h.is_empty())
+            && matches!(u.path(), "" | "/")
+            && u.query().is_none()
+            && u.fragment().is_none()
+            && u.username().is_empty()
+            && u.password().is_none()
+    });
+    let Some(target) = target else {
+        return Err(DomainError::ValidationError(format!(
+            "{what}: target must be http(s)://host[:port] without a path, got '{}'",
+            entry.target
+        )));
+    };
+    let loopback = match target.host() {
+        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    };
+    if loopback && target.port_or_known_default() == Some(entry.listen_port) {
+        return Err(DomainError::ValidationError(format!(
+            "{what}: the target is this same port — requests would loop"
+        )));
+    }
+    Ok(())
+}
+
 /// Потолок исходника скрипта: rules.json пишется на каждое изменение.
 pub const MAX_SCRIPT_SOURCE_BYTES: usize = 512 * 1024;
 
@@ -173,6 +212,18 @@ fn validate(rules: &RuleSet) -> Result<(), DomainError> {
             return Err(DomainError::ValidationError(format!(
                 "dns_spoof entry {}: host pattern {:?} is empty or has spaces",
                 entry.id, entry.host_pattern
+            )));
+        }
+    }
+
+    let mut ports = std::collections::HashSet::new();
+    for entry in &rules.reverse_proxies {
+        check_id(entry.id, "reverse_proxy")?;
+        validate_reverse_proxy(entry)?;
+        if entry.enabled && !ports.insert(entry.listen_port) {
+            return Err(DomainError::ValidationError(format!(
+                "reverse proxy: port {} is used by two enabled entries",
+                entry.listen_port
             )));
         }
     }
@@ -525,6 +576,61 @@ mod tests {
         assert!(
             validate(&rewrite).is_err(),
             "rewrite matches are checked too"
+        );
+    }
+
+    #[test]
+    fn reverse_proxy_entries_are_validated() {
+        use domain::entities::rule::ReverseProxyEntry;
+        let with = |entries: Vec<ReverseProxyEntry>| RuleSet {
+            reverse_proxies: entries,
+            ..Default::default()
+        };
+        assert!(
+            validate(&with(vec![ReverseProxyEntry::new(
+                9090,
+                "https://api.example.com"
+            )]))
+            .is_ok()
+        );
+        assert!(
+            validate(&with(vec![ReverseProxyEntry::new(
+                9090,
+                "http://localhost:3000/"
+            )]))
+            .is_ok()
+        );
+        for bad in [
+            "https://api.example.com/v1",
+            "ws://x",
+            "api.example.com",
+            "https://x?q=1",
+            "https://x#frag",
+            "http://user:pass@x",
+            "http://localhost:9090",
+            "http://127.0.0.1:9090",
+        ] {
+            assert!(
+                validate(&with(vec![ReverseProxyEntry::new(9090, bad)])).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(validate(&with(vec![ReverseProxyEntry::new(0, "http://x")])).is_err());
+        let twice = vec![
+            ReverseProxyEntry::new(9090, "http://a"),
+            ReverseProxyEntry::new(9090, "http://b"),
+        ];
+        assert!(validate(&with(twice.clone())).is_err(), "same port twice");
+        let one_off = vec![
+            twice[0].clone(),
+            ReverseProxyEntry {
+                enabled: false,
+                ..twice[1].clone()
+            },
+        ];
+        assert!(
+            validate(&with(one_off)).is_ok(),
+            "a disabled copy may share the port"
         );
     }
 

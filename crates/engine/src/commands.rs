@@ -264,6 +264,8 @@ impl EngineState {
                 self.set_dns_overrides(entries).await;
                 CommandFlow::Continue
             }
+            // Перехватывается циклом `run` (там живут листенеры).
+            EngineCommand::SetReverseProxies { .. } => CommandFlow::Continue,
             EngineCommand::SetBodyCapture { enabled } => {
                 self.record_bodies.store(enabled, Ordering::Relaxed);
                 tracing::info!(enabled, "body capture toggled (Phase 4)");

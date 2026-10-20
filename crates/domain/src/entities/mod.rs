@@ -4,6 +4,7 @@ pub mod certificate;
 pub mod dns_spoof;
 pub mod exchange;
 pub mod network;
+pub mod reverse_proxy;
 pub mod rewrite;
 pub mod rule;
 pub mod rule_routing;

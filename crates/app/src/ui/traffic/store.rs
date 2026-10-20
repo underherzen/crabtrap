@@ -185,7 +185,8 @@ pub fn apply_event(rows: &mut RowBuffer, paused: bool, event: &ProxyEvent) -> Ap
         | ProxyEvent::InterceptWaiting { .. }
         | ProxyEvent::InterceptResolved { .. }
         | ProxyEvent::ScriptLog { .. }
-        | ProxyEvent::EngineStatus { .. } => Applied::Unchanged,
+        | ProxyEvent::EngineStatus { .. }
+        | ProxyEvent::ReverseProxyStatus { .. } => Applied::Unchanged,
     }
 }
 

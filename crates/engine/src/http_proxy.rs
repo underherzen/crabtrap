@@ -27,6 +27,7 @@ use hyper::service::Service;
 use crate::body::{MonitoredBody, StreamTracker};
 use crate::commands::{ConnGuard, EngineState};
 use crate::connect;
+use crate::reverse::ReverseTarget;
 
 /// Заголовки, живущие ровно один хоп (RFC 9110 §7.6.1). Transfer-Encoding
 /// управляет hyper на каждой стороне сам.
@@ -66,6 +67,9 @@ pub(crate) struct ProxyService {
     /// Адрес листенера, к которому подключился клиент (реальный IP
     /// интерфейса даже при 0.0.0.0) — адрес прокси для страницы устройства.
     pub(crate) listener_addr: Option<std::net::SocketAddr>,
+    /// Some — соединение пришло на листенер Reverse Proxy: origin-form
+    /// запросы уходят на его цель.
+    pub(crate) reverse: Option<Arc<ReverseTarget>>,
 }
 
 /// Ошибка сервиса = «закрыть клиентское соединение без ответа» (Block с
@@ -107,7 +111,14 @@ impl ProxyService {
             mitm: None,
             origin: Default::default(),
             listener_addr: None,
+            reverse: None,
         }
+    }
+
+    /// Листенер Reverse Proxy (см. поле `reverse`).
+    pub(crate) fn with_reverse(mut self, reverse: Option<Arc<ReverseTarget>>) -> Self {
+        self.reverse = reverse;
+        self
     }
 
     /// Адрес листенера соединения (см. поле `listener_addr`).
@@ -146,6 +157,9 @@ impl ProxyService {
         let method = req.method().clone();
         let has_authority = req.uri().scheme().is_some() && req.uri().authority().is_some();
 
+        if let Some(target) = self.reverse.clone() {
+            return self.reverse_forward(&target, req).await;
+        }
         if method == Method::CONNECT {
             return Ok(connect::handle_connect(self.state, self.guard, req).await);
         }
@@ -188,6 +202,52 @@ impl ProxyService {
             tracing::debug!(path = ?req.uri().path(), "origin-form request on proxy listener");
             Ok(self.direct_hit(req).await)
         }
+    }
+}
+
+impl ProxyService {
+    /// Запрос на листенер Reverse Proxy → цель с тем же path+query. Это не
+    /// прокси: CONNECT не принимается, абсолютный URI клиента не важен.
+    async fn reverse_forward(
+        self,
+        target: &ReverseTarget,
+        req: Request<Incoming>,
+    ) -> Result<Response<MonitoredBody>, CloseConnection> {
+        if req.method() == Method::CONNECT {
+            return Ok(text_response(
+                405,
+                "crabtrap: this port is a reverse proxy, not an HTTP proxy",
+            ));
+        }
+        let (mut parts, body) = req.into_parts();
+        // `OPTIONS *` — запрос к серверу целиком: у цели это `/`.
+        let pq = match parts.uri.path_and_query().map(|p| p.as_str()) {
+            None | Some("*") => "/".to_string(),
+            Some(pq) => pq.to_string(),
+        };
+        match target.uri_for(&pq) {
+            Ok(uri) => {
+                // Host цели — сразу: правило с «Keep original Host» (Map
+                // Remote) должно сохранить его, а не `localhost:<порт>`.
+                if !target.preserve_host
+                    && let Some(authority) = uri.authority()
+                    && let Ok(host) = http::HeaderValue::from_str(authority.as_str())
+                {
+                    parts.headers.insert(http::header::HOST, host);
+                }
+                parts.uri = uri;
+                self.forward(Request::from_parts(parts, body)).await
+            }
+            Err(e) => {
+                tracing::warn!(target = %target.origin, error = %e, "reverse proxy: bad target URI");
+                Ok(text_response(400, "crabtrap: invalid request target"))
+            }
+        }
+    }
+
+    /// Host клиента остаётся (Reverse Proxy с «Keep original Host»).
+    pub(crate) fn keeps_client_host(&self) -> bool {
+        self.reverse.as_ref().is_some_and(|r| r.preserve_host)
     }
 }
 

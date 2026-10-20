@@ -163,6 +163,9 @@ impl EngineSupervisor {
                     let _ = tx.try_send(EngineCommand::SetDnsOverrides {
                         entries: snapshot.effective_dns_overrides(),
                     });
+                    let _ = tx.try_send(EngineCommand::SetReverseProxies {
+                        entries: snapshot.effective_reverse_proxies(),
+                    });
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "cannot re-push rules after engine restart")
@@ -389,6 +392,7 @@ pub fn pump_events(
                 });
                 ClientsStore::on_events(&clients, &batch, app);
                 crate::ui::breakpoint::on_events(&batch, app);
+                notify_reverse_proxy_errors(&batch, app);
                 script_console.update(app, |console, cx| {
                     if console.apply_batch(&batch) {
                         cx.notify();
@@ -398,6 +402,19 @@ pub fn pump_events(
         }
     })
     .detach();
+}
+
+/// Листенер Reverse Proxy не встал (порт занят и т.п.) — уведомление: в
+/// окне Tools запись выглядит включённой, а порт не слушает.
+fn notify_reverse_proxy_errors(batch: &[ProxyEvent], cx: &mut App) {
+    for event in batch {
+        if let ProxyEvent::ReverseProxyStatus {
+            error: Some(error), ..
+        } = event
+        {
+            crate::ui::notify::notify_error(format!("Reverse Proxy: {error}"), cx);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -149,6 +149,32 @@ to point the production name at a staging server or a backend on your Mac withou
 - Only traffic that goes through crabtrap is affected. The system DNS and apps that bypass the
   proxy are not.
 
+## Reverse Proxy
+
+Opens a local port that forwards to a server, like Proxyman's Reverse Proxy. Use it for clients that
+can't use an HTTP proxy: point them at `http://localhost:9090`, and their requests go to the target
+and show up in the traffic table, tagged `reverse-proxy`.
+
+- Add an entry in **Tools → Reverse Proxy**: a **Local port** and the server to **Forward to**
+  (protocol, host, optional port). Requests keep their path and query: `http://localhost:9090/v1/x`
+  goes to `https://api.example.com/v1/x`.
+- By default `Host` is the target's. **Keep original Host header** sends the client's
+  (`localhost:9090`) instead.
+- The port listens on the same interface as the proxy (`127.0.0.1`, or all interfaces when the
+  proxy accepts devices). It is plain HTTP; the target can be HTTPS.
+- All tools apply as for proxied traffic: rules, scripts, breakpoints, throttle, DNS Spoofing. A
+  WebSocket handshake is forwarded too.
+- Changes apply at once: removed or disabled entries stop listening, new ones start, and editing
+  an entry restarts its port (requests in flight on it are cut). An open WebSocket keeps running
+  until either side closes it or the proxy stops.
+- If a port is taken, a notification says so once and the entry stays saved; crabtrap tries the
+  port again whenever the rules change.
+- Two enabled entries can't share a port, and an entry can't forward to its own port. **Duplicate**
+  creates a disabled copy.
+- The port only forwards. It does not work as an HTTP proxy: `CONNECT` is refused with `405`.
+- When the proxy accepts devices (listens on all interfaces), reverse ports are open to the network
+  too, without authentication, just like the proxy port itself.
+
 ## Map Local
 
 Answers matching requests with a file from your Mac. The request never reaches the server.

@@ -19,6 +19,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
   everything else is proxied unrecorded and untouched. A status bar note shows when it is on.
 - **Copy as cURL** and **Export as HAR…** in the traffic context menu; **File → Export Session as
   HAR…** (with or without bodies).
+- **Reverse Proxy** (Tools): a local port that forwards to a server, for clients that can't use a
+  proxy; requests are recorded (tagged `reverse-proxy`) and all rules apply. Changes apply at once;
+  a busy port is reported.
 - Map Remote: **Replace only the fixed start of the matched path** (`/v1/*` → `/v2` maps
   `/v1/users/7` to `/v2/users/7`); WebSocket handshakes are mapped, `ws://`/`wss://` targets are
   accepted.
