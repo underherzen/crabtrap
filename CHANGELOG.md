@@ -6,6 +6,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+- Upgraded `rustls-webpki` to 0.103.16 ([RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382)):
+  certificate paths through the distrusted emSign intermediates are now rejected.
+
 ## [0.2.0] - 2026-10-21
 
 ### Added
