@@ -204,7 +204,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "application",
  "async-channel",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "application"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "config"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "directories",
  "serde",
@@ -1893,7 +1893,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2011,7 +2011,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "application",
  "async-channel",
@@ -3936,7 +3936,7 @@ dependencies = [
 
 [[package]]
 name = "infrastructure"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "application",
  "async-channel",
