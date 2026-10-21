@@ -6,6 +6,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-21
+
 ### Added
 - Map Local: custom response headers (one `Name: value` per line), e.g. CORS or `Cache-Control`.
 - "Save Response & Map Local…" in the traffic context menu: saves the decoded response body under
